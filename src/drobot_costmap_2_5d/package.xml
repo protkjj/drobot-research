@@ -3,20 +3,24 @@
 <package format="3">
   <name>drobot_costmap_2_5d</name>
   <version>0.1.0</version>
-  <description>RGB-D 깊이 + LiDAR 데이터를 융합하여 2.5D costmap을 생성하는 패키지</description>
+  <description>RGB-D + LiDAR 융합 2.5D elevation costmap Nav2 레이어 플러그인</description>
   <maintainer email="dongukleokim@gmail.com">leo11dk</maintainer>
   <license>MIT</license>
 
-  <depend>rclpy</depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>nav2_costmap_2d</depend>
   <depend>sensor_msgs</depend>
   <depend>nav_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>pluginlib</depend>
+  <depend>tf2_ros</depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>
