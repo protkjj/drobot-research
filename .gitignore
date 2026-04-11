@@ -5,10 +5,11 @@ build/
 install/
 log/
 
-# YOLO 학습 데이터 & 결과
-src/perception/dataset/runs/
-src/perception/dataset/train/
-src/perception/dataset/valid/
-src/perception/dataset/test/
-src/perception/dataset/cone_dataset/
+# Generated worlds
 src/drobot_description/worlds/generated/
+
+# 연구 데이터 (용량이 큰 실험 결과/로그)
+data/
+experiments/results/
+*.bag
+*.mcap

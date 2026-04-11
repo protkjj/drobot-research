@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Drobot Navigation Launch File
-Gazebo + SLAM + Nav2 + Goal Navigator 한번에 실행
+Drobot Research Navigation Launch File
+Gazebo + SLAM + Nav2 한번에 실행
 
 실행 방법:
   ros2 launch drobot_bringup navigation.launch.py
@@ -280,19 +280,6 @@ def launch_setup(context):
         }],
     )
 
-    # Goal Navigator (main node)
-    rules_file = os.path.join(bringup_pkg, 'config', 'navigation', 'rules.yaml')
-    goal_navigator = Node(
-        package='drobot_scan_2d',
-        executable='goal_navigator',
-        name='goal_navigator',
-        output='screen',
-        parameters=[{
-            'use_sim_time': True,
-            'rules_file': rules_file,
-        }],
-    )
-
     # After 5s: unpause Gazebo
     unpause = TimerAction(
         period=5.0,
@@ -329,7 +316,6 @@ def launch_setup(context):
         bt_navigator,
         velocity_smoother,
         nav_lifecycle,
-        goal_navigator,
     ]
 
 
