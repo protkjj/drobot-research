@@ -1,0 +1,8 @@
+source /opt/ros/jazzy/setup.bash
+
+# GStreamer 라이브러리 충돌 방지
+export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libunwind.so.8
+
+# 편의 alias
+alias cb="colcon build --symlink-install"
+alias ws="source /app/install/setup.bash"

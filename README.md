@@ -24,7 +24,9 @@ src/
 ├── drobot_costmap_2_5d/     # [신규] RGB-D + LiDAR → 2.5D costmap
 ├── drobot_energy_model/     # [신규] INA226 에너지 로깅 + 비용 함수
 ├── drobot_hybrid_planner/   # [신규] Hybrid RRT* Nav2 플래너 (C++)
-└── drobot_experiments/      # [신규] 실험 자동화 + 결과 수집
+├── drobot_experiments/      # [신규] 실험 자동화 + 결과 수집
+├── px4_msgs/                # [submodule] PX4 메시지 타입 정의
+└── px4-ros2-interface-lib/  # [submodule] PX4-ROS2 인터페이스 라이브러리
 ```
 
 | 패키지 | 빌드 | 역할 |
@@ -37,7 +39,82 @@ src/
 | `drobot_hybrid_planner` | ament_cmake | Hybrid RRT* Nav2 글로벌 플래너 플러그인 (C++) |
 | `drobot_experiments` | ament_python | 실험 자동화, 결과 수집, 베이스라인 비교 |
 
-## 빌드
+## 사전 요구사항
+
+- Docker + Docker Compose
+- NVIDIA GPU + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+
+## Docker 환경 설정
+
+이 프로젝트는 Docker Compose로 2개 컨테이너를 사용합니다:
+
+| 컨테이너 | 역할 |
+|----------|------|
+| `drobot_px4_sim` | PX4 빌드/SITL + Gazebo Harmonic + Micro-XRCE-DDS Agent |
+| `drobot_ros2` | ROS2 Jazzy + Nav2 + SLAM + 커스텀 패키지 빌드 |
+
+두 컨테이너는 `network_mode: host`로 DDS 토픽을 공유합니다.
+
+### 최초 설정
+
+```bash
+# 레포 클론 (submodule 포함)
+git clone --recursive https://github.com/<owner>/drobot-research.git
+cd drobot-research
+
+# Docker 이미지 빌드
+cd docker
+docker compose build
+```
+
+### 컨테이너 실행
+
+```bash
+# 컨테이너 시작 (백그라운드)
+cd docker
+docker compose up -d
+
+# ROS2 컨테이너 접속
+./exec_ros2.sh
+
+# PX4 컨테이너 접속 (다른 터미널)
+./exec_px4_sim.sh
+```
+
+### ROS2 컨테이너 안에서
+
+```bash
+# 패키지 빌드
+cd /app
+colcon build --symlink-install
+source install/setup.bash
+
+# 또는 alias 사용
+cb    # colcon build --symlink-install
+ws    # source /app/install/setup.bash
+```
+
+### PX4 컨테이너 안에서
+
+```bash
+# PX4-Autopilot 클론/빌드 (최초 1회)
+cd /app
+git clone --recursive https://github.com/PX4/PX4-Autopilot.git
+cd PX4-Autopilot
+make px4_sitl gz_x500
+
+# XRCE-DDS Agent 시작
+dds    # alias: MicroXRCEAgent udp4 -p 8888
+```
+
+### 컨테이너 종료
+
+```bash
+cd docker
+docker compose down
+```
+
+## 빌드 (Docker 없이)
 
 ```bash
 # 의존성 설치

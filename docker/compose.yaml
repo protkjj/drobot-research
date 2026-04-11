@@ -1,0 +1,52 @@
+services:
+  px4_sim:
+    build:
+      context: ./px4_sim/
+    container_name: drobot_px4_sim
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - LOCAL_USER_ID=${UID}
+      - LOCAL_GROUP_ID=${GID}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ../:/app
+    devices:
+      - /dev/dri
+    network_mode: host
+    stdin_open: true
+    tty: true
+    # GPU 사용 시 nvidia-container-toolkit 필요:
+    # sudo apt install nvidia-container-toolkit
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+
+  ros2:
+    build:
+      context: ./ros2/
+    container_name: drobot_ros2
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - LOCAL_USER_ID=${UID}
+      - LOCAL_GROUP_ID=${GID}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ../:/app
+    devices:
+      - /dev/dri
+    network_mode: host
+    stdin_open: true
+    tty: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
