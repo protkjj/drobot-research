@@ -1,0 +1,54 @@
+# 에너지 비용 모델 파라미터
+# Hybrid RRT* 플래너가 비용 함수 계산 시 사용
+#
+# 비용 함수: C = α·E_motion + β·E_switch + γ·T
+#
+# 주의: 아래 값들은 Phase 2 에너지 실측 전 초기 추정값
+# INA226 실측 데이터로 커브 피팅 후 반드시 보정할 것
+
+energy_model:
+  ros__parameters:
+    # ===== 비용 함수 가중치 =====
+    # α, β, γ — 임무 목적에 따라 조정
+    # 에너지 최소화 우선: α 크게, γ 작게
+    # 시간 최소화 우선: γ 크게, α 작게
+    cost_weights:
+      alpha: 1.0     # E_motion 가중치 (에너지)
+      beta: 1.0      # E_switch 가중치 (모드 전환 패널티)
+      gamma: 0.5     # T 가중치 (시간)
+      # TODO: Phase 2 실측 후 grid search 또는 수동 튜닝으로 최적값 결정
+
+    # ===== 모드별 에너지 소모율 =====
+    # 단위: Wh/m (이동 거리당 에너지)
+    # Phase 2 INA226 실측으로 커브 피팅 후 교체
+    ground_mode:
+      energy_per_meter: 0.5          # Wh/m — 평지 주행 기준
+      # 경사/거친 지형은 traversability cost에서 추가 반영
+      speed: 0.3                     # m/s — 평균 주행 속도
+
+    air_mode:
+      energy_per_meter: 2.0          # Wh/m — 수평 비행 기준
+      hover_power: 50.0              # W — 호버링 전력
+      speed: 0.5                     # m/s — 평균 비행 속도
+
+    # ===== 모드 전환 비용 =====
+    mode_switch:
+      # 이륙 (Ground → Air)
+      takeoff_energy: 5.0            # Wh — 이륙 1회 에너지
+      takeoff_time: 5.0              # seconds — 이륙 소요 시간
+
+      # 착륙 (Air → Ground)
+      landing_energy: 3.0            # Wh — 착륙 1회 에너지
+      landing_time: 4.0              # seconds — 착륙 소요 시간
+
+      # 고도별 추가 에너지 — 높이 올라갈수록 이착륙 비용 증가
+      energy_per_altitude_meter: 2.0 # Wh/m — 고도 1m당 추가 에너지
+
+    # ===== Ground Effect 보정 =====
+    # 장애물 근접 비행 시 추력 변동 → 추가 전력
+    ground_effect:
+      enabled: true
+      # 장애물 상단으로부터의 거리가 이 값 이하일 때 적용
+      activation_height: 0.5         # m
+      # 추가 전력 비율 (예: 1.15 = 15% 추가)
+      power_multiplier: 1.15

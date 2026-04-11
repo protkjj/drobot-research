@@ -1,0 +1,54 @@
+# 2.5D Elevation Costmap Layer 파라미터
+# Nav2 costmap 플러그인으로 로드 시 사용
+
+elevation_costmap_layer:
+  ros__parameters:
+    # ===== 높이 분류 임계값 =====
+    # 4단계: Free / Rover-traversable / Fly-over / Impassable
+    height_thresholds:
+      rover_traversable_max: 0.15    # m — 이 이하는 바퀴로 넘을 수 있음
+      fly_over_max: 2.0              # m — 이 이하는 비행으로 넘을 수 있음
+      # fly_over_max 초과 → Impassable (천장까지 차 있음)
+
+    # 천장 높이 — Impassable 판단 기준
+    # 장애물 높이 + 로봇 비행 고도 + 천장 여유(50cm) > ceiling_height → Impassable
+    ceiling_height: 2.5              # m
+
+    # ===== Traversability 판단 지표 =====
+    traversability:
+      # 1. 경사도 — 최소자승법 평면 피팅 → normal vector 각도
+      max_slope_angle: 15.0          # degrees — 이 이상이면 rover 통과 불가
+
+      # 2. 거칠기 — 국부 영역 고도 표준편차
+      max_roughness: 0.03            # m — 이 이상이면 rover 통과 불가
+
+      # 3. 단차 — 인접 셀 간 고도 차이
+      max_step_height: 0.05          # m — 바퀴 반경 고려한 극복 가능 높이
+      # 주의: 이 값은 Phase 2에서 실물 드로봇으로 실측 후 보정 필요
+
+    # ===== Costmap 셀 설정 =====
+    # 주의: 해상도와 윈도우 크기는 아직 미확정 — Phase 2 전에 결정 필요
+    resolution: 0.05                 # m/cell — Nav2 기본과 동일 (5cm)
+    # TODO: 5cm vs 10cm 비교 테스트 필요
+
+    # 로컬 윈도우 — D435i depth 범위(~4m)와 FoV(87°) 고려
+    local_window:
+      width: 4.0                     # m
+      height: 4.0                    # m
+
+    # ===== 업데이트 주기 =====
+    # 매 프레임(15Hz)은 과도함 — CPU 부하 고려
+    update_frequency: 5.0            # Hz
+    # TODO: 실제 부하 측정 후 조정
+
+    # ===== 센서 입력 =====
+    depth_topic: "/camera/depth/points"     # sensor_msgs/PointCloud2
+    scan_topic: "/scan"                      # sensor_msgs/LaserScan
+
+    # ===== Cost 값 매핑 =====
+    # Nav2 costmap은 0~255 범위
+    cost_values:
+      free: 0
+      rover_traversable: 100         # 주행 가능하지만 에너지 소모 증가
+      fly_over: 200                  # 비행 필요 — 플래너가 모드 전환 판단
+      impassable: 254                # LETHAL — 통과 불가

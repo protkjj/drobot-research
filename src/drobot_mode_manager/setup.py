@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'drobot_costmap_2_5d'
+package_name = 'drobot_mode_manager'
 
 setup(
     name=package_name,
@@ -11,13 +11,13 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config',
-            ['config/elevation_params.yaml']),
+            ['config/mode_switch_params.yaml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='leo11dk',
     maintainer_email='dongukleokim@gmail.com',
-    description='RGB-D + LiDAR 2.5D costmap generator',
+    description='Mode switch manager: subscribe /mode_switch_points, command PX4 takeoff/landing',
     license='MIT',
     tests_require=['pytest'],
     entry_points={

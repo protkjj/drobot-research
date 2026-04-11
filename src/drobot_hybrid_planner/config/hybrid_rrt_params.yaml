@@ -1,0 +1,47 @@
+# Hybrid RRT* 플래너 파라미터
+# Nav2 GlobalPlanner 플러그인으로 로드 시 사용
+# 모든 파라미터는 실험 시 sweep 가능하도록 yaml로 분리
+
+hybrid_rrt_planner:
+  ros__parameters:
+    # ===== 종료 조건 =====
+    # 타임아웃 or iteration limit 중 먼저 도달 시 best-so-far 반환
+    timeout: 2.0                     # seconds — Nav2 글로벌 플래너 응답 시간 제약 (1~3초)
+    max_iterations: 5000             # 타임아웃 백스톱
+
+    # ===== 샘플링 바이어스 =====
+    # Goal bias — 전체 샘플의 이 비율만큼 목표점 방향으로 샘플링
+    goal_bias: 0.1                   # 10% — 실내 복도/방 구조에서 충분
+
+    # Ground/Air 모드 샘플링 비율
+    # 방식 A (Phase 2): 고정 비율
+    ground_sample_ratio: 0.8         # 80% Ground, 20% Air
+    # 드로봇 철학: 주행이 디폴트, 비행은 예외
+
+    # 방식 B (지형 반응형, 추후 개선 시 사용)
+    # 방식 B 활성화 시 ground_sample_ratio는 무시됨
+    terrain_adaptive_sampling: false
+    terrain_adaptive:
+      fly_over_cell_air_ratio: 0.5   # Fly-over 셀 위 → Air 50%
+      free_cell_air_ratio: 0.05      # Free/Rover-traversable → Air 5%
+
+    # ===== Rewire =====
+    # r = gamma_rrt * (log(n)/n)^(1/d), d=3 (x, y, m)
+    gamma_rrt: 1.0                   # costmap 해상도에 맞춰 튜닝
+    state_space_dimension: 3         # x, y, m
+
+    # ===== 비행 제약 =====
+    # 한 번의 비행 구간 최대 거리
+    max_flight_segment: 5.0          # meters
+
+    # 비행 고도 계산 — 장애물 높이 + clearance
+    flight_clearance: 0.8            # m — 장애물 위 최소 여유 (0.8~1.0m)
+
+    # ===== 경로 최적화 =====
+    # path smoothing 활성화 여부
+    smooth_path: true
+    smoothing_weight: 0.5
+
+    # ===== 디버그 =====
+    # RRT* 트리 시각화 (RViz 마커)
+    publish_tree_markers: false      # true로 바꾸면 /rrt_tree_markers 토픽 퍼블리시

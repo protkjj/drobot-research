@@ -1,0 +1,22 @@
+# 모드 전환 파라미터
+# BT 커스텀 노드(CheckModeSwitch, ExecuteTakeoff, ExecuteLanding)에서 사용
+
+mode_manager:
+  ros__parameters:
+    # 정지 확인 — 선속도가 이 값 미만이어야 전환 허용
+    velocity_threshold: 0.05  # m/s
+
+    # 전환 쿨다운 — 착륙 후 최소 대기 시간
+    cooldown_after_landing: 3.0  # seconds
+
+    # 배터리 강제 착륙 임계값
+    battery_emergency_threshold: 15.0  # percent
+
+    # 배터리 비행 허용 여유 — 1사이클 소모량 대비 이 비율 이상 잔량 필요
+    battery_safety_margin: 1.2  # 20% 여유 = 1.2배
+
+    # 비행 거리 상한 — 한 번에 최대 비행 가능 거리
+    max_flight_distance: 5.0  # meters
+
+    # 천장 여유 최소값 — 로봇 상단 기준
+    min_ceiling_clearance: 0.5  # meters

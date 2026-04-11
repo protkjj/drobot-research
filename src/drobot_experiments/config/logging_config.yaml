@@ -1,0 +1,87 @@
+# 실험 데이터 로깅 설정
+# drobot_experiments 패키지에서 사용
+
+logging:
+  ros__parameters:
+    # ===== 데이터 저장 경로 =====
+    # 폴더 명명: {날짜}_{난이도}_{환경}
+    # 예: data/2026-09-01_medium_corridor/
+    data_root: "data"
+
+    # ===== CSV 헤더 정의 =====
+    csv_schemas:
+      # 1) energy_log.csv — energy_monitor가 100Hz로 기록
+      energy_log:
+        - timestamp           # float64, Unix epoch
+        - voltage             # float64, V
+        - current             # float64, A
+        - power               # float64, W (= voltage * current)
+        - cumulative_wh       # float64, Wh (시간 적분)
+        - mode                # string: ground / air / switching
+
+      # 2) trial_summary.csv — 각 실험 run 끝날 때 1줄 추가
+      trial_summary:
+        - trial_id            # int
+        - world               # string: easy_open, medium_corridor, ...
+        - planner             # string: smac2d / drone_only / shortest_hybrid / proposed
+        - total_energy_wh     # float64
+        - total_time_s        # float64
+        - total_distance_m    # float64
+        - num_switches        # int
+        - success             # bool
+        - flight_energy_wh    # float64
+        - ground_energy_wh    # float64
+        - planner_time_s      # float64
+
+      # 3) switch_events.csv — 모드 전환 발생 시마다 기록
+      switch_events:
+        - trial_id            # int
+        - pair_id             # int, 이륙-착륙 쌍 매칭
+        - switch_type         # string: ground_to_air / air_to_ground
+        - x                   # float64, map 좌표
+        - y                   # float64, map 좌표
+        - obstacle_height     # float64, m
+        - flight_altitude     # float64, m
+        - energy_cost_wh      # float64
+        - duration_s          # float64
+
+    # ===== rosbag 설정 =====
+    rosbag:
+      enabled: true
+      # 녹화할 토픽 — 전체 또는 선택
+      record_all: false
+      topics:
+        - /scan
+        - /camera/depth/points
+        - /imu
+        - /odom
+        - /tf
+        - /tf_static
+        - /cmd_vel
+        - /mode_switch_points
+        - /energy/power
+        - /energy/total_wh
+        - /plan                    # nav_msgs/Path
+        - /joint_states
+
+    # ===== 실험 조건 =====
+    experiment:
+      # trial 수
+      energy_measurement_trials: 5
+      path_planning_trials: 10
+
+      # Baseline 플래너 목록
+      planners:
+        - smac2d               # Baseline 1: Nav2 SMAC 2D (로버 only)
+        - drone_only           # Baseline 2: 전 구간 비행
+        - shortest_hybrid      # Baseline 3: 최단거리 하이브리드 (에너지 무시)
+        - proposed             # 에너지 인식 2.5D 하이브리드 RRT*
+
+      # 실험 월드 목록
+      worlds:
+        - easy_open
+        - easy_corridor
+        - medium_open
+        - medium_corridor
+        - hard_open
+        - hard_corridor
