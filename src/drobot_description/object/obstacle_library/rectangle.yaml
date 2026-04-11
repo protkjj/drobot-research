@@ -1,0 +1,21 @@
+name: rectangle
+type: box
+pose:
+  x: -1.0
+  y: 1.2
+  z: 0.5
+  roll: 0.0
+  pitch: 0.0
+  yaw: 0.0
+size:
+  length: 1.2
+  width: 0.6
+  height: 1.0
+physics:
+  static: true
+visual:
+  color:
+    r: 0.2
+    g: 0.35
+    b: 0.85
+    a: 1.0

@@ -1,0 +1,46 @@
+# Drobot Navigation VER1 - Driving Rules
+# 자율주행 규칙 정의
+
+# ==================== 금지 구역 ====================
+# 이 영역에는 진입 금지
+forbidden_zones:
+  # - name: "위험 구역 1"
+  #   type: "polygon"
+  #   points: [[0, 0], [1, 0], [1, 1], [0, 1]]
+  #   action: "avoid"  # avoid, stop, reroute
+
+# ==================== 속도 제한 구역 ====================
+speed_limit_zones:
+  # - name: "좁은 통로"
+  #   type: "polygon"
+  #   points: [[2, 2], [3, 2], [3, 4], [2, 4]]
+  #   max_speed: 0.1  # m/s
+
+# ==================== 정지 규칙 ====================
+stop_rules:
+  # 장애물 감지 시 
+  - name: "obstacle_detected"
+    trigger: "obstacle_in_path"
+    distance: 0.5               # m - 감지 거리
+    wait_time: 3.0              # sec - 대기 시간
+    action: "wait_and_retry"    # wait_and_retry, reroute, abort
+
+  # 급정지 상황
+  - name: "emergency_stop"
+    trigger: "collision_imminent"
+    distance: 0.3
+    wait_time: 0.0
+    action: "immediate_stop"
+
+# ==================== 주행 우선순위 ====================
+path_preferences:
+  prefer_wide_paths: true       # 넓은 길 선호
+  min_path_width: 0.5           # m - 최소 통로 폭
+  wall_clearance: 0.3           # m - 벽에서 유지할 거리
+
+# ==================== 일반 규칙 ====================
+general:
+  max_speed: 0.22               # m/s - 최대 속도
+  max_rotation_speed: 0.8       # rad/s - 최대 회전 속도
+  acceleration_limit: 0.5       # m/s² - 가속 제한
+  deceleration_limit: 1.0       # m/s² - 감속 제한

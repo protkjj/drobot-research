@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['cone']
+
+roboflow:
+  workspace: drobot-software
+  project: cone-w3wvu
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/drobot-software/cone-w3wvu/dataset/2

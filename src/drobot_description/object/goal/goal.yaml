@@ -1,0 +1,20 @@
+name: goal_cone
+type: cone
+pose:
+  x: 0
+  y: 0
+  z: 0.5
+  roll: 5.2544591086068952e-17
+  pitch: -7.7132841037290368e-10
+  yaw: -3.4184866375544543e-23
+size:
+  radius: 0.5
+  length: 1.0
+physics:
+  static: false
+visual:
+  color:
+    r: 0.699999988
+    g: 0.699999988
+    b: 0.699999988
+    a: 1.0

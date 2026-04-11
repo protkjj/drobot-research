@@ -1,0 +1,83 @@
+# SLAM Toolbox Parameters for Drobot
+# 시뮬레이션 환경에 최적화된 안정적인 설정
+
+slam_toolbox:
+  ros__parameters:
+    # ===== Solver Plugin =====
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # ===== Frame Configuration =====
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+
+    # ===== Core Settings =====
+    mode: mapping
+    use_sim_time: true
+    debug_logging: false
+
+    # ===== Map Parameters =====
+    resolution: 0.05
+    max_laser_range: 12.0
+
+    # ===== Timing (시뮬레이션 친화적) =====
+    minimum_time_interval: 0.5        # 스캔 처리 간격 (CPU 부하 감소)
+    transform_timeout: 0.5            # TF 대기 시간
+    tf_buffer_duration: 30.0          # TF 버퍼 크기
+    transform_publish_period: 0.05    # map->odom TF 발행 주기 (20Hz)
+    map_update_interval: 3.0          # 지도 업데이트 간격
+
+    # ===== Scan Processing =====
+    use_scan_matching: true
+    use_scan_barycenter: true
+    throttle_scans: 1                 # 모든 스캔 처리
+    stack_size_to_use: 40000000
+    enable_interactive_mode: false
+
+    # ===== Keyframe Generation =====
+    minimum_travel_distance: 0.1      # 10cm 이동마다 키프레임 (더 자주)
+    minimum_travel_heading: 0.08      # ~4.5도 회전마다 키프레임 (회전 드리프트 강력 방지)
+
+    # ===== Scan Buffer =====
+    scan_buffer_size: 20              # 더 많은 스캔 참조 (안정성 향상)
+    scan_buffer_maximum_scan_distance: 10.0
+
+    # ===== Scan Matching =====
+    link_match_minimum_response_fine: 0.15    # 더 엄격한 매칭 요구
+    link_scan_maximum_distance: 1.0           # 더 가까운 스캔만 링크
+
+    # ===== Loop Closure =====
+    # 시뮬레이션에서는 오도메트리가 정확하므로 루프클로저 비활성화
+    # (잘못된 루프클로저가 맵 틸팅의 주 원인)
+    do_loop_closing: false
+    loop_search_maximum_distance: 3.0
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # ===== Correlation Search (스캔 매칭 핵심) =====
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # ===== Loop Closure Search =====
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    # ===== Scan Matcher Penalties =====
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.5       # 1.0→1.5 (큰 각도 변화 억제, 틸팅 방지)
+    fine_search_angle_offset: 0.00349     # 0.2도
+    coarse_search_angle_offset: 0.349     # 20도
+    coarse_angle_resolution: 0.0349       # 2도
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true

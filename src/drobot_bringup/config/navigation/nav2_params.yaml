@@ -1,0 +1,243 @@
+# =============================================================================
+# Nav2 Parameters for Drobot - 목표 기반 자율주행 (Goal Navigation)
+# =============================================================================
+# 용도: drobot_bringup/launch/navigation.launch.py
+# 특징: 빠르고 공격적, 장애물 회피 강화
+# =============================================================================
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map
+    robot_base_frame: base_footprint
+    odom_topic: /odom
+    transform_tolerance: 1.0          # 시뮬레이션용 TF 허용 오차
+    bt_loop_duration: 10
+    default_server_timeout: 30        # 서버 타임아웃 증가
+    navigators: ["navigate_to_pose"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    # 커스텀 BT: 막히면 재계획! (패키지 share 경로에서 로드)
+
+# =============================================================================
+# Controller Server (로컬 플래너)
+# =============================================================================
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.2      # 0.3→0.2 (더 민감하게)
+      movement_time_allowance: 10.0      # 20→10초 (더 빨리 "막힘" 감지)
+
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.75       # 75cm 도착 인식 범위
+      yaw_goal_tolerance: 3.14      # yaw 제한 없음 (방향 무관하게 도착 인식)
+      stateful: true
+
+    # Rotation Shim: 경로 시작 방향과 로봇 heading 차이가 크면 제자리 회전 후 출발
+    FollowPath:
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      angular_dist_threshold: 0.1  # rad (~45°) 이상 차이나면 제자리 회전
+      forward_sampling_distance: 1.0  # 경로 앞 1.0m 지점 방향 기준 (재계획 시 heading 흔들림 감소)
+      rotate_to_heading_angular_vel: 1.5  # 제자리 회전 속도 (rad/s)
+      max_angular_accel: 5.0          # 회전 가속 제한
+      # 속도 제한 (+30% 추가!)
+      min_vel_x: 0.0              # DWB 경로추종은 전진만 (후진은 BackUp 복구에서 처리)
+      max_vel_x: 0.4
+      min_vel_y: 0.0
+      max_vel_y: 0.0
+      max_vel_theta: 1.5            # 회전 속도 (~86°/s)
+      min_speed_xy: 0.0
+      max_speed_xy: 0.4
+      min_speed_theta: 0.5          # 0→직진 시 미세보정 허용 (Spin은 behavior_server에서 별도 제어)
+      # 가속 제한
+      acc_lim_x: 0.5
+      acc_lim_y: 0.0
+      acc_lim_theta: 5.0            # 부드러운 회전 가속
+      decel_lim_x: -0.5
+      decel_lim_theta: -5.0
+      # 샘플링
+      vx_samples: 20
+      vy_samples: 1
+      vtheta_samples: 40            # 회전 샘플 증가 (더 세밀한 회전 탐색)
+      sim_time: 2.5                 # 1.7→2.5 (더 멀리 보고 미리 회전 시작)
+      transform_tolerance: 1.0        # 시뮬레이션용 TF 허용 오차
+      xy_goal_tolerance: 0.50
+      # Critics - 장애물 회피 강화!
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalDist"]
+      Oscillation.scale: 1.0           # 진동 방지
+      BaseObstacle.scale: 0.5         # 장애물 회피
+      PathAlign.scale: 10.0
+      PathAlign.forward_point_distance: 0.5   # 0.3→0.5 (더 앞의 경로에 정렬 → 부드러운 커브)
+      PathDist.scale: 10.0
+      GoalDist.scale: 10.0
+      RotateToGoal.scale: 2.0
+      RotateToGoal.slowing_factor: 2.0
+
+# =============================================================================
+# Local Costmap (실시간 장애물 감지)
+# =============================================================================
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      update_frequency: 10.0
+      publish_frequency: 5.0
+      global_frame: odom
+      robot_base_frame: base_footprint
+      use_sim_time: true
+      rolling_window: true
+      width: 4
+      height: 4
+      resolution: 0.05
+      # 직사각형 footprint (robot_radius 대신)
+      # 로봇 실제: 0.30 x 0.40m → 안전마진 포함 0.40 x 0.40m
+      footprint: "[[0.20, 0.20], [0.20, -0.20], [-0.20, -0.20], [-0.20, 0.20]]"
+      plugins: ["voxel_layer", "inflation_layer"]
+
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: true
+        publish_voxel_map: false
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 16
+        max_obstacle_height: 2.0
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          inf_is_valid: true    #adding valid value for empty space
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.3
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.3
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0      # 높을수록 lethal 근처만 고비용
+        inflation_radius: 0.25        # 최소 안전거리 (Global보다 작아서 유연함)
+
+      always_send_full_costmap: true
+
+# =============================================================================
+# Global Costmap (경로 계획용) - 더 보수적인 설정!
+# =============================================================================
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: map
+      robot_base_frame: base_footprint
+      use_sim_time: true
+      # 직사각형 footprint - 안전마진 포함 0.45 x 0.45m
+      footprint: "[[0.225, 0.225], [0.225, -0.225], [-0.225, -0.225], [-0.225, 0.225]]"
+      resolution: 0.05
+      track_unknown_space: true
+      # static + obstacle + inflation (모두 사용!)
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: scan
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          clearing: true
+          marking: true
+          data_type: "LaserScan"
+          inf_is_valid: true      #adding valid value for empty space
+          raytrace_max_range: 3.0
+          raytrace_min_range: 0.3
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.3
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # ============================================================
+        # ⚠️ 중요: 중앙 경로 선호 설정 - 절대 삭제 금지! ⚠️
+        # ============================================================
+        # cost_scaling_factor 낮으면 → 비용이 천천히 감소 → 중앙 선호
+        # inflation_radius 넓으면 → 넓은 비용 그라디언트 생성
+        # → 플래너가 장애물 사이 "중앙"으로 경로 생성!
+        # ============================================================
+        cost_scaling_factor: 2.0      # 낮을수록 벽 비용이 넓게 퍼짐 → 코너 여유 확보
+        inflation_radius: 1.0         # 비용 그라디언트 범위 (0.8→1.0, 코너에서 더 넓게 돌기)
+
+      always_send_full_costmap: true
+
+# =============================================================================
+# Planner Server (경로 계획)
+# =============================================================================
+planner_server:
+  ros__parameters:
+    use_sim_time: true
+    expected_planner_frequency: 20.0
+    planner_plugins: ["GridBased"]
+
+    GridBased:
+      plugin: "nav2_smac_planner::SmacPlanner2D"
+      tolerance: 0.5
+      allow_unknown: true
+      max_iterations: 1000000
+      max_on_approach_iterations: 1000
+
+# =============================================================================
+# Behavior Server (복구 동작)
+# =============================================================================
+behavior_server:
+  ros__parameters:
+    use_sim_time: true
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    # 복구 동작 추가: costmap 클리어!
+    behavior_plugins: ["spin", "backup", "wait", "drive_on_heading"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    drive_on_heading:
+      plugin: "nav2_behaviors::DriveOnHeading"
+    global_frame: odom
+    robot_base_frame: base_footprint
+    transform_tolerance: 1.0
+    max_rotational_vel: 1.5           # Spin 회전 속도
+    min_rotational_vel: 0.4           # Spin 최소 회전 속도
+    rotational_acc_lim: 2.0           # Spin 회전 가속도
+
+# =============================================================================
+# Velocity Smoother
+# =============================================================================
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: true
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.4, 0.0, 2.0]
+    min_velocity: [-0.2, 0.0, -1.5]
+    max_accel: [1.0, 0.0, 3.0]
+    max_decel: [-1.0, 0.0, -2.0]
+    odom_topic: "odom"
+    odom_duration: 0.1

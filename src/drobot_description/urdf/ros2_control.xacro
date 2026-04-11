@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <ros2_control name="DrobotSystem" type="system">
+    <xacro:if value="$(arg use_sim)">
+      <hardware><plugin>gz_ros2_control/GazeboSimSystem</plugin></hardware>
+    </xacro:if>
+
+    <!-- Arm joints are fixed for rover mode -->
+
+    <!-- Wheel joints (velocity control) -->
+    <joint name="lf_wheel_con">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/><state_interface name="velocity"/>
+    </joint>
+
+    <joint name="lr_wheel_con">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/><state_interface name="velocity"/>
+    </joint>
+
+    <joint name="rf_wheel_con">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/><state_interface name="velocity"/>
+    </joint>
+
+    <joint name="rr_wheel_con">
+      <command_interface name="velocity"/>
+      <state_interface name="position"/><state_interface name="velocity"/>
+    </joint>
+  </ros2_control>
+
+</robot>
