@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'energy_logger = drobot_energy_model.energy_logger:main',
         ],
     },
 )

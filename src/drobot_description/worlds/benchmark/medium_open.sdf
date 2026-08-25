@@ -1,0 +1,220 @@
+<?xml version="1.0" ?>
+<!-- 자동 생성 파일 — 직접 수정하지 말 것.
+     생성: python3 benchmark/export_sdf.py
+     원본: benchmark/envs/heightmap.py 의 medium_open
+     벽 3개(0.55/1.10/0.80), 1.10은 4D만 통과 가능 -->
+<sdf version="1.9">
+  <world name="medium_open">
+
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics">
+    </plugin>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands">
+    </plugin>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster">
+    </plugin>
+    <plugin filename="gz-sim-contact-system" name="gz::sim::systems::Contact">
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu">
+    </plugin>
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane>
+            <normal>0 0 1</normal>
+            <size>32.0 24.0</size>
+          </plane></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><plane>
+            <normal>0 0 1</normal>
+            <size>32.0 24.0</size>
+          </plane></geometry>
+          <material>
+            <ambient>0.75 0.75 0.72 1</ambient>
+            <diffuse>0.75 0.75 0.72 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="obs_0001_h055">
+      <static>true</static>
+      <pose>5.300 6.000 0.275 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.600 12.000 0.550</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.600 12.000 0.550</size></box></geometry>
+          <material>
+            <ambient>0.66 0.81 0.88 1</ambient>
+            <diffuse>0.66 0.81 0.88 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0002_h080">
+      <static>true</static>
+      <pose>17.300 5.250 0.400 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.600 10.500 0.800</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.600 10.500 0.800</size></box></geometry>
+          <material>
+            <ambient>0.66 0.81 0.88 1</ambient>
+            <diffuse>0.66 0.81 0.88 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0003_h110">
+      <static>true</static>
+      <pose>11.300 8.250 0.550 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.600 11.500 1.100</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.600 11.500 1.100</size></box></geometry>
+          <material>
+            <ambient>0.91 0.58 0.23 1</ambient>
+            <diffuse>0.91 0.58 0.23 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0004_h300">
+      <static>true</static>
+      <pose>2.500 0.100 1.500 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>5.000 0.200 3.000</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>5.000 0.200 3.000</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.25 0.25 0.27 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0005_h300">
+      <static>true</static>
+      <pose>11.300 0.100 1.500 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>11.400 0.200 3.000</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>11.400 0.200 3.000</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.25 0.25 0.27 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0006_h300">
+      <static>true</static>
+      <pose>19.800 0.100 1.500 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.400 0.200 3.000</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.400 0.200 3.000</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.25 0.25 0.27 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0007_h300">
+      <static>true</static>
+      <pose>0.100 7.100 1.500 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.200 13.800 3.000</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.200 13.800 3.000</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.25 0.25 0.27 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0008_h300">
+      <static>true</static>
+      <pose>21.900 7.100 1.500 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.200 13.800 3.000</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.200 13.800 3.000</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.25 0.25 0.27 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0009_h300">
+      <static>true</static>
+      <pose>5.600 13.900 1.500 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10.800 0.200 3.000</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10.800 0.200 3.000</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.25 0.25 0.27 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="obs_0010_h300">
+      <static>true</static>
+      <pose>16.700 13.900 1.500 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10.200 0.200 3.000</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10.200 0.200 3.000</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.27 1</ambient>
+            <diffuse>0.25 0.25 0.27 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

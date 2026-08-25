@@ -13,5 +13,15 @@ worlds:
   empty:                      {x: 0.0, y: 0.0}
   basic:                      {x: 0.0, y: 0.0}
 
+  # 벤치마크 맵 (benchmark/export_sdf.py 로 생성)
+  # 원본 정의: benchmark/envs/heightmap.py
+  # goal 은 RViz 에서 2D Goal Pose 로 찍는다 (아래 주석 참고)
+  easy_open:        {x: 1.5, y: 7.0}    # goal (18.5, 7.0)
+  easy_corridor:    {x: 1.5, y: 7.0}    # goal (18.5, 2.0)
+  medium_open:      {x: 1.5, y: 7.0}    # goal (20.5, 7.0)
+  medium_corridor:  {x: 1.5, y: 7.0}    # goal (20.5, 2.0)
+  hard_open:        {x: 1.5, y: 8.0}    # goal (22.5, 8.0)
+  hard_corridor:    {x: 1.5, y: 8.0}    # goal (22.5, 8.0)
+
 # world 목록에 없는 맵은 이 좌표 사용
 default: {x: 0.0, y: 1.5}

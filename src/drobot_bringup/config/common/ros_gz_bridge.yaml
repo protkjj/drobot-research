@@ -58,6 +58,17 @@
   gz_type_name: "gz.msgs.Image"
   direction: GZ_TO_ROS
 
+# Camera depth pointcloud — drobot_costmap_2_5d 의 ElevationLayer 가 쓴다.
+# gz-sim 의 rgbd 센서는 <topic>/camera</topic> 설정 시
+# /camera/image, /camera/depth_image, /camera/points 세 개를 낸다.
+# 이 항목이 없으면 ElevationLayer 가 구독할 토픽 자체가 존재하지 않아
+# 높이맵이 영원히 비어 있게 된다.
+- ros_topic_name: "/camera/depth/points"
+  gz_topic_name: "/camera/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
 # Arm joint
 - ros_topic_name: "/arm/lf_arm_rev/cmd_pos"
   gz_topic_name: "/model/drobot/joint/lf_arm_rev/cmd_pos"

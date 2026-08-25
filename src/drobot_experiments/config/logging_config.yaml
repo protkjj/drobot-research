@@ -75,7 +75,7 @@ logging:
         - smac2d               # Baseline 1: Nav2 SMAC 2D (로버 only)
         - drone_only           # Baseline 2: 전 구간 비행
         - shortest_hybrid      # Baseline 3: 최단거리 하이브리드 (에너지 무시)
-        - proposed             # 에너지 인식 2.5D 하이브리드 RRT*
+        - proposed             # 에너지 인식 2.5D 하이브리드 A*
 
       # 실험 월드 목록
       worlds:
