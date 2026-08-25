@@ -1,0 +1,12 @@
+<!-- Nav2 글로벌 플래너 플러그인 등록 -->
+<library path="hybrid_astar_planner">
+  <class
+    name="drobot_hybrid_planner::HybridAStarPlanner"
+    type="drobot_hybrid_planner::HybridAStarPlanner"
+    base_class_type="nav2_core::GlobalPlanner">
+    <description>
+      에너지 인식 2.5D 하이브리드 A* 글로벌 플래너.
+      지상 주행과 비행을 함께 계획하고 모드 전환 지점을 ModeSwitchPlan으로 퍼블리시한다.
+    </description>
+  </class>
+</library>
