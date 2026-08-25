@@ -1,4 +1,11 @@
-FROM nvidia/cuda:13.1.0-runtime-ubuntu24.04
+# syntax=docker/dockerfile:1
+# ^ heredoc(RUN <<EOF) 문법을 쓰려면 이 지시어가 필요하다.
+#   없으면 구형 파서가 heredoc 안의 명령을 Dockerfile 명령으로 오해한다.
+# CUDA 12.6 을 쓰는 이유:
+# 랩실 데스크탑 드라이버가 570.133.20 (CUDA 12.8 까지 지원)이라
+# 13.1 이미지는 nvidia-container-cli 가 'unsatisfied condition: cuda>=13.1' 로 거부한다.
+# 드라이버를 올리려면 재부팅이 필요하고 공용 머신이라 이미지 쪽을 낮췄다.
+FROM nvidia/cuda:12.6.3-runtime-ubuntu24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=en_US.UTF-8
