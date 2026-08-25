@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# 랩실 데스크탑으로 코드 동기화
+#
+# macOS에서 작성한 코드를 ROS2가 있는 원격 머신으로 보낸다.
+# 빌드 산출물(build/install/log)은 원격 것을 그대로 두므로
+# 매번 전체 재빌드가 일어나지 않는다.
+#
+# 사용법
+#   ./sync.sh              동기화만
+#   ./sync.sh build        동기화 + 빌드
+#   ./sync.sh test         동기화 + 빌드 + 테스트
+#   ./sync.sh watch        파일이 바뀔 때마다 자동 동기화 (Ctrl+C로 중지)
+#   ./sync.sh sim [world] [planner]   시뮬레이션 실행 (기본: medium_open proposed)
+#   ./sync.sh stop         시뮬레이션 종료
+#
+# 주의: 빌드와 시뮬레이션을 동시에 돌리지 않는다.
+#       Gazebo + RViz + GPU 렌더링에 colcon 병렬 컴파일이 겹치면
+#       머신이 응답하지 않는다 (build/test 는 자동으로 시뮬레이션을 끈다).
+
+set -euo pipefail
+
+REMOTE="vail-detop"
+REMOTE_DIR="~/drobot-research"
+LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"
+
+# --delete 를 쓰는 이유:
+#   파일 이름을 바꾸면(예: hybrid_rrt_star_planner.hpp -> hybrid_astar_planner.hpp)
+#   이 옵션이 없을 때 원격에 옛 파일이 남아 빌드가 헷갈린다.
+#   build/install/log 는 아래 exclude 로 지키므로 안전하다.
+# macOS 기본 rsync 는 2.6.9(2006년)라 최신 옵션을 모른다.
+# --info=stats1 대신 --stats 를 쓴다 (구버전에도 있는 옵션).
+RSYNC_OPTS=(
+  -az --delete --stats
+  --exclude='.git'
+  --exclude='build' --exclude='install' --exclude='log'
+  --exclude='__pycache__' --exclude='*.pyc'
+  --exclude='.DS_Store' --exclude='.vscode'
+  --exclude='benchmark/results/*.json'   # 용량 큰 원자료는 로컬에만
+  # Git LFS 자산은 원격에서만 받는다 (git lfs pull).
+  # 로컬은 포인터(130B) 상태라 동기화하면 원격의 실제 파일을 덮어써 버린다.
+  # 실제로 이것 때문에 Gazebo 가 "Error parsing XML" 로 죽었다.
+  --exclude='src/drobot_description/worlds/'
+  --exclude='src/drobot_description/models/'
+  --exclude='src/drobot_description/meshes/'
+)
+
+PKGS="drobot_msgs drobot_hybrid_planner drobot_costmap_2_5d"
+
+do_sync() {
+  echo "==> 동기화: $LOCAL_DIR -> $REMOTE:$REMOTE_DIR"
+  rsync "${RSYNC_OPTS[@]}" "$LOCAL_DIR" "$REMOTE:$REMOTE_DIR"
+}
+
+stop_sim() {
+  # 빌드 전에 시뮬레이션을 반드시 끈다.
+  # Gazebo(server+gui) + RViz + GPU 렌더링에 colcon 병렬 컴파일이 겹치면
+  # 머신이 응답하지 않게 된다 (실제로 SSH 가 끊긴 적이 있다).
+  echo "==> 시뮬레이션 종료 (빌드와 동시 실행 금지)"
+  ssh "$REMOTE" "docker exec drobot_ros2 bash -c \
+    \"pkill -9 -f 'gz sim|rviz2|nav2|slam_toolbox|ekf_node|ros2 launch|robot_state_pub' 2>/dev/null\" || true"
+  sleep 2
+}
+
+do_build() {
+  stop_sim
+  echo "==> 원격 빌드 ($PKGS)"
+  # 병렬 작업 수를 제한한다. 랩실 데스크탑은 공용이라
+  # 16코어를 전부 쓰면 다른 작업이 멈춘다.
+  ssh -t "$REMOTE" "cd $REMOTE_DIR && \
+    docker exec -u \$(id -u):\$(id -g) drobot_ros2 bash -lc '
+      cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash 2>/dev/null
+      MAKEFLAGS=-j6 colcon build --symlink-install --parallel-workers 3 \
+        --packages-select $PKGS --event-handlers console_direct+
+    '"
+}
+
+do_test() {
+  echo "==> 원격 테스트 (Python<->C++ 동등성)"
+  ssh -t "$REMOTE" "docker exec -u \$(id -u):\$(id -g) drobot_ros2 bash -lc '
+      cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+      colcon test --parallel-workers 2 --packages-select drobot_hybrid_planner \
+        --event-handlers console_direct+
+      colcon test-result --verbose
+    '"
+}
+
+do_sim() {
+  # 시뮬레이션은 빌드가 끝난 뒤에만 띄운다.
+  #
+  # 기본은 headless 다. RViz + Gazebo GUI 가 X 서버와 GPU 를 점유하면
+  # 원격 데스크톱(RustDesk)의 화면 입력이 먹통이 되고 SSH 도 끊긴다.
+  # 실제로 두 번 그렇게 머신이 마비됐다.
+  # 화면으로 봐야 할 때만 gui 를 붙인다: ./sync.sh sim <world> <planner> gui
+  local world="${2:-medium_open}"
+  local planner="${3:-proposed}"
+  local mode="${4:-headless}"
+
+  local gui_args=""
+  local disp="-e DISPLAY=:0"
+  if [ "$mode" != "gui" ]; then
+    # Gazebo 서버만 띄우고 GUI 와 RViz 는 끈다
+    gui_args="use_rviz:=false gz_gui:=false"
+    disp=""
+  fi
+
+  echo "==> 시뮬레이션: world=$world planner=$planner mode=$mode"
+  ssh "$REMOTE" "docker exec -u \$(id -u):\$(id -g) $disp drobot_ros2 bash -lc '
+      cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+      nohup ros2 launch drobot_bringup navigation.launch.py \
+        world:=$world planner:=$planner robot_model:=primitives $gui_args \
+        > /app/sim.log 2>&1 &
+      echo \"launch 시작 — 로그: ~/drobot-research/sim.log\"
+    '"
+  echo "    확인이 끝나면 반드시: ./sync.sh stop"
+}
+
+case "${1:-sync}" in
+  sync)
+    do_sync
+    ;;
+  build)
+    do_sync && do_build
+    ;;
+  test)
+    do_sync && do_build && do_test
+    ;;
+  sim)
+    # 빌드 없이 시뮬레이션만 (이미 빌드돼 있을 때)
+    stop_sim && do_sim "$@"
+    ;;
+  stop)
+    stop_sim
+    ;;
+  watch)
+    # 파일이 바뀔 때마다 자동 동기화.
+    # fswatch 가 필요하다:  brew install fswatch
+    if ! command -v fswatch >/dev/null 2>&1; then
+      echo "fswatch 가 없다. 설치: brew install fswatch" >&2
+      exit 1
+    fi
+    do_sync
+    echo "==> 감시 시작 (Ctrl+C로 중지)"
+    fswatch -o -r \
+      --exclude='\.git' --exclude='build' --exclude='install' \
+      --exclude='log' --exclude='__pycache__' \
+      "$LOCAL_DIR" | while read -r _; do
+      do_sync
+    done
+    ;;
+  *)
+    echo "사용법: $0 [sync|build|test|watch|sim <world> <planner>|stop]" >&2
+    exit 1
+    ;;
+esac
