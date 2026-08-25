@@ -1,0 +1,1099 @@
+<title>장애물을 넘는 세 가지 방법</title>
+
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     팔레트는 이 연구의 지형 등급(elevation_params.yaml)에서 가져왔다.
+     Free / Rover-traversable / Fly-over / Impassable 네 등급이
+     그대로 색 언어가 된다. 세 modal 에도 각각 고유색을 준다 —
+     장식이 아니라 표·차트·본문에서 같은 대상을 가리키는 식별자다.
+     ───────────────────────────────────────────────────────────── */
+  :root {
+    --paper:      #eceeec;
+    --surface:    #f6f7f5;
+    --surface-2:  #e2e5e1;
+    --ink:        #131a17;
+    --ink-2:      #414a45;
+    --ink-3:      #6d7772;
+    --rule:       #c9cec9;
+    --rule-soft:  #dcdfdb;
+
+    --detour:     #767d78;
+    --climb:      #a4661f;
+    --fly:        #35618f;
+    --alert:      #9c3a29;
+    --ok:         #2b6b52;
+    --on-climb:   #ffffff;
+
+    --detour-bg:  #767d7818;
+    --climb-bg:   #a4661f1f;
+    --fly-bg:     #35618f1f;
+    --alert-bg:   #9c3a2916;
+    --ok-bg:      #2b6b5216;
+
+    --shadow:     0 1px 2px #131a170d, 0 6px 20px #131a1708;
+
+    --sans: "Pretendard", "Apple SD Gothic Neo", -apple-system,
+            BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0e1512;
+      --surface:    #161e1a;
+      --surface-2:  #1f2a25;
+      --ink:        #e4e9e5;
+      --ink-2:      #b0b9b4;
+      --ink-3:      #7e8a84;
+      --rule:       #2c3833;
+      --rule-soft:  #212c27;
+
+      --detour:     #9aa39d;
+      --climb:      #d99a4a;
+      --fly:        #74a5d8;
+      --alert:      #e0796a;
+      --ok:         #5fb894;
+      --on-climb:   #101714;
+
+      --detour-bg:  #9aa39d1a;
+      --climb-bg:   #d99a4a20;
+      --fly-bg:     #74a5d820;
+      --alert-bg:   #e0796a18;
+      --ok-bg:      #5fb89418;
+
+      --shadow:     0 1px 2px #0006, 0 6px 20px #0004;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #0e1512;
+    --surface:    #161e1a;
+    --surface-2:  #1f2a25;
+    --ink:        #e4e9e5;
+    --ink-2:      #b0b9b4;
+    --ink-3:      #7e8a84;
+    --rule:       #2c3833;
+    --rule-soft:  #212c27;
+
+    --detour:     #9aa39d;
+    --climb:      #d99a4a;
+    --fly:        #74a5d8;
+    --alert:      #e0796a;
+    --ok:         #5fb894;
+    --on-climb:   #101714;
+
+    --detour-bg:  #9aa39d1a;
+    --climb-bg:   #d99a4a20;
+    --fly-bg:     #74a5d820;
+    --alert-bg:   #e0796a18;
+    --ok-bg:      #5fb89418;
+
+    --shadow:     0 1px 2px #0006, 0 6px 20px #0004;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 940px;
+    margin: 0 auto;
+    padding: clamp(2.5rem, 6vw, 5rem) clamp(1.1rem, 4vw, 2.5rem) 6rem;
+  }
+
+  /* ── 헤더 ───────────────────────────────────────────────── */
+  header { margin-bottom: 3.5rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 0 0 1.1rem;
+  }
+
+  h1 {
+    font-size: clamp(2rem, 5.6vw, 3.15rem);
+    line-height: 1.1;
+    letter-spacing: -0.028em;
+    font-weight: 760;
+    margin: 0 0 1.2rem;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: clamp(1.02rem, 2.2vw, 1.16rem);
+    color: var(--ink-2);
+    max-width: 60ch;
+    margin: 0;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.6rem;
+    margin-top: 2rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--ink-3);
+  }
+  .meta b { color: var(--ink-2); font-weight: 500; }
+
+  /* ── 섹션 ───────────────────────────────────────────────── */
+  section { margin-top: 4.2rem; }
+
+  h2 {
+    font-size: clamp(1.32rem, 3vw, 1.62rem);
+    letter-spacing: -0.018em;
+    font-weight: 700;
+    line-height: 1.28;
+    margin: 0 0 0.5rem;
+    text-wrap: balance;
+    display: flex;
+    align-items: baseline;
+    gap: 0.85rem;
+  }
+  h2 .num {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: var(--ink-3);
+    letter-spacing: 0.06em;
+    flex: none;
+    padding-top: 0.15rem;
+  }
+
+  h3 {
+    font-size: 1.02rem;
+    font-weight: 660;
+    letter-spacing: -0.006em;
+    margin: 2.4rem 0 0.7rem;
+  }
+
+  p { margin: 0 0 1.05rem; max-width: 68ch; }
+  p:last-child { margin-bottom: 0; }
+
+  strong { font-weight: 660; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.855em;
+    background: var(--surface-2);
+    padding: 0.1em 0.38em;
+    border-radius: 3px;
+  }
+
+  .lede {
+    font-size: 1.02rem;
+    color: var(--ink-2);
+    margin-bottom: 1.8rem;
+    max-width: 66ch;
+  }
+
+  /* ── 수식 블록 ──────────────────────────────────────────── */
+  .formula {
+    background: var(--surface);
+    border: 1px solid var(--rule-soft);
+    border-radius: 7px;
+    padding: 1.15rem 1.3rem;
+    margin: 1.4rem 0;
+    font-family: var(--mono);
+    font-size: 0.88rem;
+    line-height: 1.85;
+    overflow-x: auto;
+    box-shadow: var(--shadow);
+  }
+  .formula .lbl {
+    display: block;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 0.5rem;
+  }
+  .formula.bad  { border-left: 3px solid var(--alert); }
+  .formula.good { border-left: 3px solid var(--ok); }
+  .formula em { font-style: normal; color: var(--alert); font-weight: 600; }
+  .formula .hl { color: var(--ok); font-weight: 600; }
+
+  /* ── 표 ─────────────────────────────────────────────────── */
+  .tablewrap {
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    border: 1px solid var(--rule-soft);
+    border-radius: 7px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    font-variant-numeric: tabular-nums;
+  }
+  caption {
+    caption-side: top;
+    text-align: left;
+    padding: 0.9rem 1.1rem 0.2rem;
+    font-size: 0.79rem;
+    color: var(--ink-3);
+    font-family: var(--mono);
+    letter-spacing: 0.02em;
+  }
+  th, td {
+    padding: 0.58rem 0.85rem;
+    text-align: left;
+    border-bottom: 1px solid var(--rule-soft);
+    white-space: nowrap;
+  }
+  thead th {
+    font-weight: 600;
+    font-size: 0.79rem;
+    color: var(--ink-2);
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  .num-col { text-align: right; font-family: var(--mono); font-size: 0.83rem; }
+  tr.spot td { background: var(--climb-bg); }
+  tr.spot td:first-child { box-shadow: inset 3px 0 0 var(--climb); }
+
+  /* ── modal 식별 색 ──────────────────────────────────────── */
+  .m { font-weight: 600; }
+  .m-detour { color: var(--detour); }
+  .m-climb  { color: var(--climb); }
+  .m-fly    { color: var(--fly); }
+
+  .chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.03em;
+    padding: 0.1rem 0.44rem;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+  }
+  .yes { color: var(--ok); font-weight: 700; }
+  .no  { color: var(--ink-3); }
+
+  /* ── 콜아웃 ─────────────────────────────────────────────── */
+  .note {
+    border-left: 3px solid var(--rule);
+    background: var(--surface);
+    padding: 1.05rem 1.25rem;
+    margin: 1.6rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.93rem;
+  }
+  .note.warn  { border-left-color: var(--alert); background: var(--alert-bg); }
+  .note.good  { border-left-color: var(--ok);    background: var(--ok-bg); }
+  .note .tag {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    margin-bottom: 0.45rem;
+    color: var(--ink-3);
+  }
+  .note.warn .tag { color: var(--alert); }
+  .note.good .tag { color: var(--ok); }
+  .note p { margin-bottom: 0.7rem; }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ── 40배 비교 카드 ─────────────────────────────────────── */
+  .split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 0.9rem;
+    margin: 1.6rem 0;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule-soft);
+    border-radius: 7px;
+    padding: 1.1rem 1.2rem;
+    box-shadow: var(--shadow);
+  }
+  .card .k {
+    font-family: var(--mono);
+    font-size: 0.71rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 0.5rem;
+  }
+  .card .v {
+    font-family: var(--mono);
+    font-size: 1.85rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+  .card .sub {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--ink-3);
+    margin-top: 0.4rem;
+  }
+  .card.hot .v { color: var(--alert); }
+
+  /* ── 스택 바 차트 ───────────────────────────────────────── */
+  .chart {
+    background: var(--surface);
+    border: 1px solid var(--rule-soft);
+    border-radius: 7px;
+    padding: 1.3rem 1.35rem 1.1rem;
+    margin: 1.6rem 0;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+  }
+  .chart h4 {
+    margin: 0 0 0.25rem;
+    font-size: 0.92rem;
+    font-weight: 640;
+  }
+  .chart .cap {
+    font-family: var(--mono);
+    font-size: 0.73rem;
+    color: var(--ink-3);
+    margin: 0 0 1.1rem;
+  }
+  .rowchart { display: grid; gap: 0.34rem; min-width: 420px; }
+  .rowchart .r {
+    display: grid;
+    grid-template-columns: 3.1rem 1fr 3.4rem;
+    align-items: center;
+    gap: 0.7rem;
+  }
+  .rowchart .lab {
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--ink-2);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    display: flex;
+    height: 17px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--surface-2);
+  }
+  .bar span { display: block; height: 100%; }
+  .bar .s-fly    { background: var(--fly); }
+  .bar .s-climb  { background: var(--climb); }
+  .bar .s-detour { background: var(--detour); }
+  .bar .s-tie    { background: var(--rule); }
+  .rowchart .val {
+    font-family: var(--mono);
+    font-size: 0.74rem;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.15rem;
+    margin-top: 1rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid var(--rule-soft);
+    font-family: var(--mono);
+    font-size: 0.73rem;
+    color: var(--ink-2);
+  }
+  .legend i {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 2px;
+    margin-right: 0.4rem;
+    vertical-align: -1px;
+  }
+
+  /* ── 히트맵 ─────────────────────────────────────────────── */
+  .heat { min-width: 560px; border-collapse: collapse; font-size: 0.8rem; }
+  .heat th, .heat td {
+    padding: 0.42rem 0.5rem;
+    text-align: center;
+    border: 1px solid var(--paper);
+    white-space: nowrap;
+  }
+  .heat th {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--ink-2);
+    background: none;
+    border: none;
+  }
+  .heat td {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    border-radius: 2px;
+  }
+  .heat td.k { color: var(--ink-2); background: none; text-align: right; }
+  .heat tr.spot td.k { color: var(--climb); font-weight: 700; }
+
+  ul { margin: 0 0 1.05rem; padding-left: 1.15rem; max-width: 68ch; }
+  li { margin-bottom: 0.5rem; }
+  li::marker { color: var(--ink-3); }
+
+  footer {
+    margin-top: 5rem;
+    padding-top: 1.6rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: 0.76rem;
+    color: var(--ink-3);
+  }
+  footer p { max-width: 70ch; margin-bottom: 0.55rem; }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">drobot-research · 2026-08-25</p>
+  <h1>장애물을 넘는 세 가지 방법</h1>
+  <p class="standfirst">
+    맵을 전부 안다는 가정에서 우회·밟고넘기·비행 세 modal 각각의 경로를 만들고,
+    같은 에너지 모델로 평가했다. 결론보다 먼저 나온 것은 결함 세 개였다 —
+    비용함수, 스무딩, 그리고 C++ 플래너가 아예 날지 못하던 문제.
+  </p>
+  <div class="meta">
+    <span><b>계획 횟수</b> 990 (가중치) + 90 (등반계수)</span>
+    <span><b>맵</b> 5개 · 격자 0.1 m</span>
+    <span><b>플래너</b> A* (3D 상태공간)</span>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<section>
+  <h2><span class="num">01</span>세 modal 의 정의</h2>
+  <p class="lede">
+    modal 을 가르는 것은 이동 수단이 아니라 <strong>장애물을 만났을 때의 선택</strong>이다.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>state_space.py · Modal — 밟고넘기 한계 높이는 0.7 m</caption>
+      <thead>
+        <tr>
+          <th>modal</th><th>우회</th><th>밟고넘기</th><th>비행</th>
+          <th class="num-col">로버 통과높이</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="m m-detour">우회</span> <code>rover_detour</code></td>
+          <td class="yes">O</td><td class="no">—</td><td class="no">—</td>
+          <td class="num-col">0.15 m</td>
+        </tr>
+        <tr>
+          <td><span class="m m-climb">밟고넘기</span> <code>rover_climb</code></td>
+          <td class="yes">O</td><td class="yes">O</td><td class="no">—</td>
+          <td class="num-col"><strong>0.70 m</strong></td>
+        </tr>
+        <tr>
+          <td><span class="m m-fly">하이브리드</span> <code>hybrid</code></td>
+          <td class="yes">O</td><td class="no">—</td><td class="yes">O</td>
+          <td class="num-col">0.15 m</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    <span class="m m-climb">밟고넘기</span>와 <span class="m m-fly">하이브리드</span>는 각각
+    <span class="m m-detour">우회</span>의 <strong>상위집합</strong>이다 —
+    밟거나 날 수 있는 로봇은 그냥 도는 경로도 갈 수 있다.
+    따라서 두 modal 의 최적 비용은 우회보다 클 수 없다.
+    이 성질이 아래에서 결과 검증의 불변식으로 쓰인다.
+  </p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<section>
+  <h2><span class="num">02</span>결함 1 — 전환 에너지가 40배 싸게 계상되고 있었다</h2>
+  <p class="lede">
+    비용함수의 두 에너지 항이 서로 다른 참조값으로 나눠지고 있었다.
+  </p>
+
+  <div class="formula bad">
+    <span class="lbl">이전 식</span>
+    C = wE·E_motion/<em>E_ref</em> + wS·E_switch/<em>E_switch_ref</em> + wT·T/T_ref
+    <br><span style="color:var(--ink-3)">            ↑ 0.5 Wh              ↑ 8.0 Wh</span>
+  </div>
+
+  <p>
+    같은 1 Wh 라도 어디서 소모되느냐에 따라 비용 기여가 달라졌다.
+    배터리에서 빠지는 1 Wh 는 어디서 쓰든 1 Wh 인데도 그랬다.
+  </p>
+
+  <div class="split">
+    <div class="card">
+      <div class="k">주행으로 1 Wh</div>
+      <div class="v">1.000</div>
+      <div class="sub">0.5 × 1/0.5</div>
+    </div>
+    <div class="card">
+      <div class="k">전환으로 1 Wh</div>
+      <div class="v">0.025</div>
+      <div class="sub">0.2 × 1/8.0</div>
+    </div>
+    <div class="card hot">
+      <div class="k">배율</div>
+      <div class="v">40×</div>
+      <div class="sub">전환이 그만큼 싸다</div>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">실제 영향</span>
+    <p>
+      medium_open 에서 총 <strong>52.9 Wh</strong> 쓰는 하이브리드 경로가
+      <strong>14.1 Wh</strong> 쓰는 밟고넘기 경로를 이기고 '최적'으로 뽑혔다.
+      E_switch 40.2 Wh 가 비용에 1.005 밖에 기여하지 못했기 때문이다.
+      에너지 효율 경로를 찾는다는 연구 목적과 정면으로 어긋난다.
+    </p>
+  </div>
+
+  <h3>수정</h3>
+  <div class="formula good">
+    <span class="lbl">현재 식 (정규화 형태)</span>
+    C = wE·(E_motion + E_switch)/<span class="hl">E_ref</span> + wS·<span class="hl">n_switch</span> + wT·T/T_ref
+    <br><br>
+    <span class="lbl">등가 형태 (논문용)</span>
+    C = α·(E_motion + E_switch) + β·n_switch + γ·T
+    <br>α = wE/E_ref = 1.0   β = wS = 0.2   γ = wT/T_ref = 0.09
+  </div>
+
+  <p>
+    에너지는 에너지끼리 같은 참조값으로 정규화하고, 전환은
+    <strong>횟수 페널티</strong>로 분리했다. 전환에는 Wh 로 환산되지 않는 비용이 있기 때문이다 —
+    착륙 실패 위험, 자세 재수립, 제어 복잡도.
+    <code>n_switch</code> 는 이·착륙을 각각 세므로 비행 한 구간이면 <code>2·wS</code> 가 붙는다.
+  </p>
+  <p>
+    회귀 방지 테스트를 C++ 쪽에 넣었다 —
+    <code>SwitchEnergyCostsSameAsMotionEnergy</code>:
+    같은 1 Wh 는 주행이든 전환이든 같은 비용이어야 한다.
+  </p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<section>
+  <h2><span class="num">03</span>등반 에너지는 위치에너지로 모델링할 수 없다</h2>
+
+  <p>
+    밟고넘기의 에너지는 INA226 실측 전이다. 물리 공식으로 대체할 수 있는지 먼저 계산했다.
+    URDF 링크 14개의 질량 합계는 <strong>2.723 kg</strong>이다.
+  </p>
+
+  <div class="split">
+    <div class="card">
+      <div class="k">h = 0.7 m 위치에너지</div>
+      <div class="v">18.70 J</div>
+      <div class="sub">m·g·h</div>
+    </div>
+    <div class="card">
+      <div class="k">효율 0.4 적용</div>
+      <div class="v">0.013 Wh</div>
+      <div class="sub">전동 손실 반영</div>
+    </div>
+    <div class="card hot">
+      <div class="k">평지 주행 환산</div>
+      <div class="v">2.6 cm</div>
+      <div class="sub">사실상 공짜</div>
+    </div>
+  </div>
+
+  <p>
+    위치에너지만 쓰면 밟고넘기가 항상 이겨 비교 자체가 무의미해진다.
+    실제 등반은 모터 토크 급증·슬립·저속 주행 때문에 훨씬 크다.
+    그래서 <code>climb_mode.energy_per_height_m</code> 를
+    <strong>미지수로 두고 sweep</strong> 했다. 실측값이 나오면 곡선 위에 점 하나만 찍으면 된다.
+  </p>
+
+  <div class="note">
+    <span class="tag">부과 방식</span>
+    <p>
+      비용은 <strong>상승분 Δh 에만</strong> 부과한다. 목적지 높이에 비례해 매기면
+      장애물 위를 여러 셀 지나갈 때 중복 계상된다.
+      올라갈 때 한 번, 위에서는 평지와 동일, 내려올 때는 공짜 —
+      위치에너지와 같은 경로 무관(path-independent) 구조가 된다.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<section>
+  <h2><span class="num">04</span>결함 2 — 스무딩이 순위를 뒤집고 있었다</h2>
+
+  <p class="lede">
+    sweep 결과에 논리적으로 불가능한 행이 있었다.
+    상위집합인 <span class="m m-climb">밟고넘기</span>가
+    <span class="m m-detour">우회</span>보다 최대 <strong>4.84%</strong> 비쌌다 — 90행 중 14행.
+  </p>
+
+  <p>단계를 분리해 어디서 뒤집히는지 확인했다.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>A* 격자해 vs 스무딩 후 — 밟고넘기 : 우회</caption>
+      <thead>
+        <tr><th>맵</th><th class="num-col">등반계수</th>
+            <th>A* 격자해</th><th>스무딩 후</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>easy_open</td><td class="num-col">5.0</td>
+            <td><span style="color:var(--ok)">17.148 ≤ 17.195</span></td>
+            <td><span style="color:var(--alert)">17.077 &gt; 16.289</span></td></tr>
+        <tr><td>medium_open</td><td class="num-col">12.0</td>
+            <td><span style="color:var(--ok)">28.146 ≤ 28.240</span></td>
+            <td><span style="color:var(--alert)">27.472 &gt; 26.617</span></td></tr>
+        <tr><td>hard_open</td><td class="num-col">8.0</td>
+            <td><span style="color:var(--ok)">30.937 ≤ 31.031</span></td>
+            <td><span style="color:var(--alert)">30.242 &gt; 29.479</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    <strong>A* 격자해는 전부 정상이고, 역전은 스무딩에서만 생긴다.</strong>
+    우회 경로는 5.0~5.8% 개선되는데 밟고넘기 경로는 0.4~2.4% 밖에 개선되지 않는다.
+    밟고넘기 경로는 장애물을 가로질러 이미 짧아 shortcut 여지가 적고,
+    우회 경로는 길고 지그재그라 개선 폭이 크다.
+    shortcut smoothing 이 그리디 휴리스틱이라 최적을 보장하지 않기 때문이다.
+  </p>
+
+  <div class="note good">
+    <span class="tag">수정</span>
+    <p>
+      모든 파라미터 지점에서 얻은 경로를 한데 모아, 각 지점마다 전부 재평가하고
+      최소를 취한다. 후보 집합이 파라미터와 무관하게 같아지므로 단조성이 보장된다.
+    </p>
+    <p>
+      결과 조작이 아니다 — 후보 경로는 전부 실제 실행 가능하며,
+      최적 플래너라면 당연히 그중 가장 싼 것을 골랐을 경로들이다.
+      수정 후 <strong>단조성 위반 0건 / 상위집합 위반 0건</strong>.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">남은 한계</span>
+    <p>
+      근본 원인(스무더가 비최적)은 그대로다. 이 보정은 modal 간·파라미터 간 비교만
+      바로잡을 뿐, 같은 조건 안에서 스무딩이 놓친 개선은 못 찾는다.
+      논문에는 <em>경로 후처리로 shortcut smoothing 을 쓰며 최적은 아니다</em>를
+      명시하는 편이 정직하다.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<section>
+  <h2><span class="num">05</span>등반계수 sweep — 실측값이 얼마면 밟고넘기가 유리한가</h2>
+
+  <p class="lede">
+    <span class="m m-climb">밟고넘기</span>의 <span class="m m-detour">우회</span> 대비 비용 절감률.
+    실측이 나오면 해당 행만 보면 된다.
+  </p>
+
+  <div class="chart">
+    <h4>등반계수에 따른 밟고넘기 이득</h4>
+    <p class="cap">단위 %. 색이 진할수록 이득이 크다. 0% 는 우회와 같아졌다는 뜻.</p>
+    <div style="overflow-x:auto">
+    <table class="heat">
+      <thead>
+        <tr>
+          <th style="text-align:right">Wh/m</th>
+          <th>easy_open</th><th>easy_corridor</th><th>medium_open</th>
+          <th>medium_corridor</th><th>hard_open</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="k">0.0</td>
+          <td style="background:var(--climb);color:var(--on-climb)">15.95</td>
+          <td style="background:color-mix(in srgb,var(--climb) 31%,transparent)">6.79</td>
+          <td style="background:var(--climb);color:var(--on-climb)">21.62</td>
+          <td style="background:color-mix(in srgb,var(--climb) 4%,transparent)">0.89</td>
+          <td style="background:var(--climb);color:var(--on-climb)">16.50</td></tr>
+        <tr><td class="k">0.5</td>
+          <td style="background:color-mix(in srgb,var(--climb) 61%,transparent)">13.19</td>
+          <td style="background:color-mix(in srgb,var(--climb) 25%,transparent)">5.37</td>
+          <td style="background:color-mix(in srgb,var(--climb) 95%,transparent);color:var(--on-climb)">20.59</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 70%,transparent)">15.22</td></tr>
+        <tr><td class="k">1.0</td>
+          <td style="background:color-mix(in srgb,var(--climb) 52%,transparent)">11.33</td>
+          <td style="background:color-mix(in srgb,var(--climb) 18%,transparent)">3.95</td>
+          <td style="background:color-mix(in srgb,var(--climb) 90%,transparent);color:var(--on-climb)">19.55</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 65%,transparent)">14.03</td></tr>
+        <tr><td class="k">1.5</td>
+          <td style="background:color-mix(in srgb,var(--climb) 45%,transparent)">9.64</td>
+          <td style="background:color-mix(in srgb,var(--climb) 12%,transparent)">2.53</td>
+          <td style="background:color-mix(in srgb,var(--climb) 86%,transparent);color:var(--on-climb)">18.52</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 59%,transparent)">12.85</td></tr>
+        <tr class="spot"><td class="k">2.0</td>
+          <td style="background:color-mix(in srgb,var(--climb) 37%,transparent)">7.95</td>
+          <td style="background:color-mix(in srgb,var(--climb) 5%,transparent)">1.12</td>
+          <td style="background:color-mix(in srgb,var(--climb) 81%,transparent);color:var(--on-climb)">17.49</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 54%,transparent)">11.66</td></tr>
+        <tr><td class="k">3.0</td>
+          <td style="background:color-mix(in srgb,var(--climb) 21%,transparent)">4.58</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 71%,transparent)">15.42</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 43%,transparent)">9.29</td></tr>
+        <tr><td class="k">4.0</td>
+          <td style="background:color-mix(in srgb,var(--climb) 6%,transparent)">1.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 62%,transparent)">13.35</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 32%,transparent)">6.91</td></tr>
+        <tr><td class="k">5.0</td>
+          <td style="background:none;color:var(--ink-3)">0.00</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 52%,transparent)">11.29</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 21%,transparent)">4.54</td></tr>
+        <tr><td class="k">6.0</td>
+          <td style="background:none;color:var(--ink-3)">0.00</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 43%,transparent)">9.22</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 10%,transparent)">2.16</td></tr>
+        <tr><td class="k">8.0</td>
+          <td style="background:none;color:var(--ink-3)">0.00</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 24%,transparent)">5.09</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 2%,transparent)">0.53</td></tr>
+        <tr><td class="k">10.0</td>
+          <td style="background:none;color:var(--ink-3)">0.00</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 4%,transparent)">0.95</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 2%,transparent)">0.53</td></tr>
+        <tr><td class="k">25.0</td>
+          <td style="background:none;color:var(--ink-3)">0.00</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.20</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.26</td>
+          <td style="background:color-mix(in srgb,var(--climb) 1%,transparent)">0.05</td>
+          <td style="background:color-mix(in srgb,var(--climb) 2%,transparent)">0.53</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="legend">
+      <span>강조된 행 <b>2.0</b> 은 현재 사용 중인 추정치 (미검증)</span>
+    </div>
+  </div>
+
+  <p>
+    대략 <strong>5 Wh/m 이하면 밟고넘기가 확실히 유리</strong>하고,
+    10 Wh/m 를 넘으면 이득이 거의 사라진다.
+    medium_corridor 는 0.7 m 이하 장애물이 거의 없어 처음부터 이득이 없다 —
+    맵 자체가 밟고넘기로 얻을 게 없는 구조다.
+  </p>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<section>
+  <h2><span class="num">06</span>가중치 sweep — 비행은 시간을 사고 에너지를 판다</h2>
+
+  <p class="lede">
+    66개 가중치 조합(wE+wS+wT=1, 0.1 단위) × 5맵 × 3modal = 990회 계획.
+    등반계수는 2.0 Wh/m 고정.
+  </p>
+
+  <div class="chart">
+    <h4>에너지 가중치 wE 에 따른 승자 분포</h4>
+    <p class="cap">각 wE 의 조합 수가 다르므로 막대 길이도 다르다 (wE 가 클수록 조합이 적다).</p>
+    <div class="rowchart">
+      <div class="r"><span class="lab">wE 0.0</span>
+        <span class="bar"><span class="s-fly" style="width:78.2%"></span><span class="s-climb" style="width:12.7%"></span><span class="s-tie" style="width:9.1%"></span></span>
+        <span class="val">55</span></div>
+      <div class="r"><span class="lab">0.1</span>
+        <span class="bar"><span class="s-fly" style="width:21.8%"></span><span class="s-climb" style="width:69.1%"></span></span>
+        <span class="val">50</span></div>
+      <div class="r"><span class="lab">0.2</span>
+        <span class="bar"><span class="s-fly" style="width:1.8%"></span><span class="s-climb" style="width:80.0%"></span></span>
+        <span class="val">45</span></div>
+      <div class="r"><span class="lab">0.3</span>
+        <span class="bar"><span class="s-climb" style="width:72.7%"></span></span>
+        <span class="val">40</span></div>
+      <div class="r"><span class="lab">0.4</span>
+        <span class="bar"><span class="s-climb" style="width:63.6%"></span></span>
+        <span class="val">35</span></div>
+      <div class="r"><span class="lab">0.5</span>
+        <span class="bar"><span class="s-climb" style="width:54.5%"></span></span>
+        <span class="val">30</span></div>
+      <div class="r"><span class="lab">0.6</span>
+        <span class="bar"><span class="s-climb" style="width:45.5%"></span></span>
+        <span class="val">25</span></div>
+      <div class="r"><span class="lab">0.7</span>
+        <span class="bar"><span class="s-climb" style="width:36.4%"></span></span>
+        <span class="val">20</span></div>
+      <div class="r"><span class="lab">0.8</span>
+        <span class="bar"><span class="s-climb" style="width:27.3%"></span></span>
+        <span class="val">15</span></div>
+      <div class="r"><span class="lab">0.9</span>
+        <span class="bar"><span class="s-climb" style="width:18.2%"></span></span>
+        <span class="val">10</span></div>
+      <div class="r"><span class="lab">1.0</span>
+        <span class="bar"><span class="s-climb" style="width:9.1%"></span></span>
+        <span class="val">5</span></div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--fly)"></i>하이브리드 56</span>
+      <span><i style="background:var(--climb)"></i>밟고넘기 269</span>
+      <span><i style="background:var(--detour)"></i>우회 0</span>
+      <span><i style="background:var(--rule)"></i>동률 5</span>
+    </div>
+  </div>
+
+  <p>
+    <strong><span class="m m-fly">하이브리드</span>는 wE ≤ 0.2 에서만 이긴다.</strong>
+    wE ≥ 0.3 이면 330행 중 한 번도 못 이긴다.
+    현재 설정이 wE = 0.5 이므로, 지금 가중치에서 비행은 선택되지 않는다.
+  </p>
+
+  <p>이유는 명확하다. 하이브리드가 이긴 경우 에너지를 훨씬 많이 쓴다.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>하이브리드가 이긴 조합에서의 에너지 대가 (가중치 0.0 / 0.0 / 1.0)</caption>
+      <thead>
+        <tr><th>맵</th>
+            <th class="num-col">하이브리드</th>
+            <th class="num-col">밟고넘기</th>
+            <th class="num-col">배수</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>easy_open</td><td class="num-col">45.2 Wh</td><td class="num-col">10.3 Wh</td>
+            <td class="num-col" style="color:var(--alert);font-weight:600">4.39×</td></tr>
+        <tr><td>easy_corridor</td><td class="num-col">51.0 Wh</td><td class="num-col">11.2 Wh</td>
+            <td class="num-col" style="color:var(--alert);font-weight:600">4.57×</td></tr>
+        <tr><td>medium_open</td><td class="num-col">51.6 Wh</td><td class="num-col">14.1 Wh</td>
+            <td class="num-col" style="color:var(--alert);font-weight:600">3.66×</td></tr>
+        <tr><td>medium_corridor</td><td class="num-col">60.2 Wh</td><td class="num-col">17.9 Wh</td>
+            <td class="num-col" style="color:var(--alert);font-weight:600">3.36×</td></tr>
+        <tr><td>hard_open</td><td class="num-col">56.0 Wh</td><td class="num-col">18.7 Wh</td>
+            <td class="num-col" style="color:var(--alert);font-weight:600">3.00×</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>
+    비행은 <strong>시간을 사는 대신 에너지를 3~4.6배 지불</strong>하는 선택지다.
+    에너지를 조금이라도 중시하면 이 거래가 성립하지 않는다.
+  </p>
+
+  <h3>현재 설정 (0.5 / 0.2 / 0.3) 에서의 맵별 비교</h3>
+
+  <div class="tablewrap">
+    <table>
+      <caption>비용 — 굵은 값이 승자</caption>
+      <thead>
+        <tr><th>맵</th>
+            <th class="num-col">우회</th>
+            <th class="num-col">밟고넘기</th>
+            <th class="num-col">하이브리드</th>
+            <th class="num-col">승자 에너지</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>easy_open</td><td class="num-col">16.231</td>
+            <td class="num-col"><strong style="color:var(--climb)">14.993</strong></td>
+            <td class="num-col">16.231</td><td class="num-col">9.8 Wh</td></tr>
+        <tr><td>easy_corridor</td><td class="num-col">17.628</td>
+            <td class="num-col"><strong style="color:var(--climb)">17.296</strong></td>
+            <td class="num-col">17.628</td><td class="num-col">11.2 Wh</td></tr>
+        <tr><td>medium_open</td><td class="num-col">26.608</td>
+            <td class="num-col"><strong style="color:var(--climb)">21.963</strong></td>
+            <td class="num-col">26.608</td><td class="num-col">14.1 Wh</td></tr>
+        <tr><td>medium_corridor</td><td class="num-col">28.739</td>
+            <td class="num-col"><strong style="color:var(--climb)">28.681</strong></td>
+            <td class="num-col">28.739</td><td class="num-col">17.9 Wh</td></tr>
+        <tr><td>hard_open</td><td class="num-col">29.299</td>
+            <td class="num-col"><strong style="color:var(--climb)">25.975</strong></td>
+            <td class="num-col">29.299</td><td class="num-col">16.7 Wh</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <span class="tag">읽는 법</span>
+    <p>
+      하이브리드 비용이 우회와 소수점까지 같다 — <strong>비행을 한 번도 쓰지 않았다</strong>는 뜻이다.
+      하이브리드는 밟고넘기를 못 하므로 우회 아니면 비행인데,
+      비행이 이득이 안 되니 우회와 같은 경로로 수렴한다.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">해석 시 주의</span>
+    <p>
+      이 결과는 등반계수 <strong>2.0 Wh/m 라는 미검증 추정치</strong>에 의존한다.
+      INA226 실측이 이 값보다 훨씬 크면 밟고넘기의 우위가 줄고 판도가 바뀐다.
+      5절 표에서 실측값에 해당하는 행을 보면 된다.
+    </p>
+    <p>
+      동률 5건은 전부 <code>wE=0, wS=1.0, wT=0</code> — 에너지와 시간을 완전히 무시해
+      지상 경로가 모두 비용 0 이 되는 축퇴 조합이다. 승리로 집계하지 않았다.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════ -->
+<section>
+  <h2><span class="num">07</span>C++ 플래너는 장애물을 넘지 못했다 — 재현, 수정, 검증</h2>
+
+  <p class="lede">
+    C++ 3D 상태공간이 <strong>지형 추종 고도</strong>(<code>airZ = 지형높이 + flight_clearance</code>)를
+    쓰는데, 이는 상승각 제약과 충돌한다.
+  </p>
+
+  <div class="formula bad">
+    <span class="lbl">격자 0.05 m · 최대상승각 45°</span>
+    한 스텝 최대 고도변화                <span class="hl">0.050 m</span><br>
+    0.60 m 장애물 경계에서 필요한 고도변화  <em>0.600 m</em>  → 거부
+  </div>
+
+  <p>
+    <strong>하이브리드 플래너가 어떤 장애물도 날아서 넘지 못했다.</strong>
+    이륙은 되지만 장애물 경계에서 모든 공중 전이가 거부되어
+    실질적으로 <span class="m m-detour">우회</span>와 같아진다.
+  </p>
+
+  <h3>1 · 결함을 코드로 재현</h3>
+
+  <p>
+    고치기 전에 먼저 테스트를 썼다. 진단이 틀렸을 가능성을 걸러내기 위해서다.
+    대조군(<code>RoverClimbCrossesObstacleOnGround</code>)이 통과하므로
+    도달성 검사 자체는 멀쩡하고 하이브리드만 못 건넌다는 게 확인된다.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>test/test_state_space.cpp — 수정 전 실행 결과</caption>
+      <thead><tr><th>테스트</th><th>결과</th><th>의미</th></tr></thead>
+      <tbody>
+        <tr><td><code>ObstacleIsFlyableButNotDrivable</code></td>
+            <td class="yes">OK</td><td>설정은 의도대로</td></tr>
+        <tr><td><code>ModalGatesTakeoffAndClimb</code></td>
+            <td class="yes">OK</td><td>3 modal 게이팅 정상</td></tr>
+        <tr><td><code>RoverClimbCrossesObstacleOnGround</code></td>
+            <td class="yes">OK</td><td>대조군 — 밟고넘기는 건넌다</td></tr>
+        <tr><td><code>FlightStepCanEnterObstacleAirspace</code></td>
+            <td style="color:var(--alert);font-weight:600">FAILED</td>
+            <td>장애물 상공으로 진입 불가</td></tr>
+        <tr><td><code>ReachesAcrossFlyOverObstacle</code></td>
+            <td style="color:var(--alert);font-weight:600">FAILED</td>
+            <td>반대편에 전혀 도달 못 함</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>2 · 수정 — 비행 구간 고도 고정</h3>
+
+  <p>Python 에서 했던 것과 같은 구조로 바꿨다.</p>
+
+  <ul>
+    <li><code>State</code> 에 <code>level</code>(비행 고도 인덱스) 추가</li>
+    <li><code>buildAirLevels()</code> — costmap 을 훑어 후보 고도 열거
+        (<code>지형높이 + flight_clearance</code>)</li>
+    <li>이륙 시 고도 선택, 비행 중 고정, 착륙 시 하강</li>
+    <li>공중 이동에서 수직 비용·상승각 검사 제거 (고도가 안 변하므로)</li>
+  </ul>
+
+  <p>같이 걸린 것 둘도 고쳤다.</p>
+
+  <ul>
+    <li><code>groundSegmentCost()</code> — 스무딩 직선이 장애물 위를 지날 때
+        등반 비용을 반영한다. 없으면 <span class="m m-climb">밟고넘기</span>가 공짜가 된다.</li>
+    <li><code>buildSwitchPlan()</code> — 비행 구간 에너지를
+        <code>airMoveHorizontal(dist, 고도)</code> 로 재계산하던 것을 실제 구간 비용 누적으로 교체.
+        두 번째 인자는 '고도'가 아니라 '지형 상단으로부터의 여유'라 의미가 달랐다.</li>
+  </ul>
+
+  <h3>3 · 검증</h3>
+
+  <div class="split">
+    <div class="card">
+      <div class="k">원격 테스트 (Ubuntu · ROS2 Jazzy)</div>
+      <div class="v" style="color:var(--ok)">73</div>
+      <div class="sub">0 errors, 0 failures</div>
+    </div>
+    <div class="card">
+      <div class="k">gtest</div>
+      <div class="v">26</div>
+      <div class="sub">EnergyModel 18 + StateSpace 8</div>
+    </div>
+  </div>
+
+  <div class="note good">
+    <span class="tag">수정이 진짜 원인이었나</span>
+    <p>
+      테스트를 새 API 에 맞추면서 함께 고쳤으므로, 테스트가 느슨해져서 통과할
+      가능성이 있었다. 확인하려고 <strong>이륙 고도를 가장 낮은 하나로 제한하는
+      개악을 일시 적용</strong>했더니
+      <code>ChoosesHigherAltitudeWhenLowestIsNotEnough</code> 가 다시 실패했다.
+      테스트가 로직을 실제로 붙잡고 있다는 뜻이다. 개악은 되돌렸다.
+    </p>
+    <p>
+      Python↔C++ 고도 후보 규칙도 대조했다 —
+      평지+0.60m 맵은 양쪽 다 <code>[0.80, 1.40]</code>,
+      평지+0.90m 맵은 양쪽 다 <code>[0.80, 1.70]</code>.
+    </p>
+  </div>
+
+  <div class="note warn">
+    <span class="tag">작업 중 낸 내 실수</span>
+    <p>
+      처음 쓴 BFS 헬퍼가 방문 집합 키에서 <code>level</code> 을 빠뜨렸다.
+      같은 셀의 다른 고도가 이미 방문한 것으로 처리되어, 코드는 멀쩡한데
+      테스트가 실패했다. 0.60m 장애물은 가장 낮은 고도로도 넘어져서 이 실수가
+      드러나지 않았고, <strong>0.90m 케이스를 추가하고 나서야</strong> 잡혔다.
+    </p>
+  </div>
+
+  <h3>남은 것</h3>
+  <ul>
+    <li><strong>등반계수 실측</strong> — INA226 4채널. 지금 결론 전체가 이 값에 걸려 있다.</li>
+    <li><strong>스무더 비최적</strong> — 경로 풀링은 비교만 바로잡을 뿐 근본 해결이 아니다.</li>
+    <li><strong>실험 기록 구조</strong> — <code>logging_config.yaml</code> 의 baseline 목록이
+        플래너 축(<code>smac2d</code> / <code>drone_only</code> / …)이라 modal 축과 어긋난다.
+        <code>trial_summary</code> 에 <code>modal</code> 컬럼도 없다.</li>
+    <li><strong>ground effect 미발동</strong> — <code>flight_clearance</code> 0.8 &gt;
+        <code>activation_height</code> 0.5 라 3D 에서는 영원히 안 켜진다.</li>
+    <li><strong>Gazebo 재확인</strong> — 이제 비행이 가능해졌으니 실제 경로에
+        이착륙이 나오는지 다시 봐야 한다.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>
+    benchmark/exp_weight_sweep.py · benchmark/exp_climb_sweep.py ·
+    benchmark/modal_compare.py · benchmark/cost/energy.py
+  </p>
+  <p>
+    원자료 — results/benchmark_weight_sweep.json (330행) ·
+    results/benchmark_climb_sweep.json (90행)
+  </p>
+</footer>
+
+</div>
