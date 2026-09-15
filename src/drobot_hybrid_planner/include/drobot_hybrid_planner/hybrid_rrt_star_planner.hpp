@@ -1,6 +1,0 @@
-// TODO: Hybrid RRT* Nav2 글로벌 플래너 플러그인 헤더
-// nav2_core::GlobalPlanner 인터페이스를 구현할 예정
-#ifndef DROBOT_HYBRID_PLANNER__HYBRID_RRT_STAR_PLANNER_HPP_
-#define DROBOT_HYBRID_PLANNER__HYBRID_RRT_STAR_PLANNER_HPP_
-
-#endif  // DROBOT_HYBRID_PLANNER__HYBRID_RRT_STAR_PLANNER_HPP_

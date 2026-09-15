@@ -1,0 +1,164 @@
+{
+ "before": {
+  "kind": "before",
+  "weights": {
+   "w_energy": 0.5,
+   "w_switch": 8.0,
+   "w_time": 1.6666666666666667,
+   "share_energy": 4.918032786885246,
+   "share_switch": 78.68852459016394,
+   "share_time": 16.393442622950822,
+   "alpha": 1.0,
+   "beta": 1.0,
+   "gamma": 0.5
+  },
+  "rows": [
+   {
+    "map": "easy_open",
+    "astar_cost": 44.50567722154729,
+    "astar_time_s": 0.2485,
+    "astar_switches": 0,
+    "astar_energy_wh": 10.270540897280144,
+    "rrt_mean": 44.55260583757526,
+    "rrt_std": 0.3709669739742346,
+    "rrt_best": 44.026822342135716,
+    "rrt_switches_mean": 0.0,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 0.10544411175760975
+   },
+   {
+    "map": "easy_corridor",
+    "astar_cost": 47.74357194374818,
+    "astar_time_s": 0.2413,
+    "astar_switches": 0,
+    "astar_energy_wh": 11.017747371634195,
+    "rrt_mean": 48.7598272682412,
+    "rrt_std": 0.4930479556019293,
+    "rrt_best": 48.203724112094896,
+    "rrt_switches_mean": 0.0,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 2.1285699479929634
+   },
+   {
+    "map": "medium_open",
+    "astar_cost": 72.08771294515054,
+    "astar_time_s": 1.6378,
+    "astar_switches": 0,
+    "astar_energy_wh": 16.63562606426551,
+    "rrt_mean": 75.50781998200456,
+    "rrt_std": 1.0566113855698445,
+    "rrt_best": 73.98956603952769,
+    "rrt_switches_mean": 0.2,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 4.744368904387743
+   },
+   {
+    "map": "medium_corridor",
+    "astar_cost": 78.38110225477568,
+    "astar_time_s": 1.8298,
+    "astar_switches": 0,
+    "astar_energy_wh": 18.087946674179005,
+    "rrt_mean": 81.00500486590748,
+    "rrt_std": 1.0822275497802285,
+    "rrt_best": 78.46478125126536,
+    "rrt_switches_mean": 0.0,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 3.3476214746290136
+   },
+   {
+    "map": "hard_open",
+    "astar_cost": 79.40728997057553,
+    "astar_time_s": 2.023,
+    "astar_switches": 0,
+    "astar_energy_wh": 18.324759223978965,
+    "rrt_mean": 83.48530087949506,
+    "rrt_std": 1.0149354757832805,
+    "rrt_best": 81.23997905893185,
+    "rrt_switches_mean": 0.0,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 5.1355623777497446
+   }
+  ]
+ },
+ "after": {
+  "kind": "after",
+  "weights": {
+   "w_energy": 0.5,
+   "w_switch": 0.2,
+   "w_time": 0.3,
+   "share_energy": 50.0,
+   "share_switch": 20.0,
+   "share_time": 30.0,
+   "alpha": 1.0,
+   "beta": 0.025,
+   "gamma": 0.09
+  },
+  "rows": [
+   {
+    "map": "easy_open",
+    "astar_cost": 16.288813202259448,
+    "astar_time_s": 0.3827,
+    "astar_switches": 0,
+    "astar_energy_wh": 10.180508251412157,
+    "rrt_mean": 16.432174882813573,
+    "rrt_std": 0.13646369185353394,
+    "rrt_best": 16.25605748017319,
+    "rrt_switches_mean": 0.1,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 0.880123547209932
+   },
+   {
+    "map": "easy_corridor",
+    "astar_cost": 17.62839579461471,
+    "astar_time_s": 0.4627,
+    "astar_switches": 0,
+    "astar_energy_wh": 11.017747371634195,
+    "rrt_mean": 17.995399713206858,
+    "rrt_std": 0.17455419098506406,
+    "rrt_best": 17.798298133696576,
+    "rrt_switches_mean": 0.0,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 2.081890620496861
+   },
+   {
+    "map": "medium_open",
+    "astar_cost": 25.84554687870047,
+    "astar_time_s": 1.5288,
+    "astar_switches": 2,
+    "astar_energy_wh": 27.53096679918782,
+    "rrt_mean": 26.54420146726851,
+    "rrt_std": 1.2658160199990254,
+    "rrt_best": 24.032429044551776,
+    "rrt_switches_mean": 1.5,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 2.7031913538026426
+   },
+   {
+    "map": "medium_corridor",
+    "astar_cost": 29.356341304255874,
+    "astar_time_s": 1.977,
+    "astar_switches": 0,
+    "astar_energy_wh": 18.347713315159925,
+    "rrt_mean": 29.888134259490368,
+    "rrt_std": 0.4057829039386531,
+    "rrt_best": 28.971611538928755,
+    "rrt_switches_mean": 0.0,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 1.8115096487088396
+   },
+   {
+    "map": "hard_open",
+    "astar_cost": 30.011699833466928,
+    "astar_time_s": 1.9034,
+    "astar_switches": 2,
+    "astar_energy_wh": 30.247312395916865,
+    "rrt_mean": 30.885622812213974,
+    "rrt_std": 0.4750471064166705,
+    "rrt_best": 29.99629996022099,
+    "rrt_switches_mean": 0.0,
+    "rrt_fails": 0,
+    "astar_advantage_pct": 2.911940955015514
+   }
+  ]
+ }
+}

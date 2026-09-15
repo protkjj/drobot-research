@@ -20,3 +20,6 @@ experiments/results/
 # Claude Code
 CLAUDE.md
 .claude/
+
+# 에디터 개인 설정
+.vscode/

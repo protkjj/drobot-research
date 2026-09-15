@@ -1,62 +1,109 @@
 # 에너지 비용 모델 파라미터
-# Hybrid RRT* 플래너가 비용 함수 계산 시 사용
+# Hybrid A* 플래너가 비용 함수 계산 시 사용
 #
-# 비용 함수: C = α·E_motion + β·E_switch + γ·T
+# 비용 함수 (정규화 형태)
+#     C = wE·(E_motion + E_switch)/E_ref + wS·n_switch + wT·T/T_ref
 #
-# 주의: 아래 값들은 Phase 2 에너지 실측 전 초기 추정값
-# INA226 실측 데이터로 커브 피팅 후 반드시 보정할 것
+# 등가 형태 (논문에는 두 식을 연결해 설명하면 된다):
+#     C = α·(E_motion + E_switch) + β·n_switch + γ·T
+#     α = wE / E_ref,  β = wS,  γ = wT / T_ref
 #
-# 1차 합리적 추정 근거 (drobot 플랫폼: 소형 실내 hybrid 로봇 가정):
-# - 소형 드론 hover power ≈ 50 W, 비행 속도 0.5 m/s → air ≈ 0.06 Wh/m (순수 hover)
-# - 추진/저항/안전 마진 포함 → air 0.6 Wh/m (hover의 ~10배)
-# - 소형 다리 접이식 takeoff/landing: 모터 가속/감속 1~2초 → 0.3~0.5 Wh
-# - 고도별 추가 에너지: 상승 중 추력 증가분 — 1m당 0.4 Wh
-# 이 값들로 6×11 base map에서 height별 모드 우열이 자연스럽게 나뉘도록 1차 튜닝
+# 에너지(Wh)와 시간(s)을 그대로 더하면 단위가 섞이므로 정규화한다.
+# 세 항이 모두 무차원이 되어 가중치의 의미가 명확해진다.
+#
+# 왜 E_switch 를 E_motion 과 같은 참조값(E_ref)으로 나누는가:
+#   이전에는 E_switch 를 E_switch_ref(8.0 Wh)로 따로 나눴다. 그러면
+#   같은 1 Wh 라도 주행이면 wE/0.5 = 1.000, 전환이면 wS/8.0 = 0.025 로
+#   40배 차이가 났다. 배터리에서 빠지는 1 Wh 는 어디서 쓰든 1 Wh 인데도 그랬다.
+#   그 결과 medium_open 에서 총 52.9 Wh 쓰는 하이브리드 경로가
+#   14.1 Wh 쓰는 밟고넘기 경로를 이기고 '최적'으로 뽑혔다.
+#   에너지 효율 경로를 찾는다는 목적과 어긋나므로 참조값을 통일했다.
+#
+# 전환 항이 '횟수'로 남은 이유:
+#   전환에는 에너지 외의 비용도 있다 — 착륙 실패 위험, 자세 재수립, 제어 복잡도.
+#   이건 Wh 로 환산되지 않으므로 횟수 페널티로 둔다.
+#   n_switch 는 이륙과 착륙을 각각 세므로 비행 한 구간이면 2·wS 가 붙는다.
+#
+# 주의: 아래 값들은 Phase 2 에너지 실측 전 초기 추정값이다.
+#       INA226 실측 → JMP 회귀 → 계수 교체 순서로 보정할 것.
+#       특히 takeoff_energy는 같은 config의 hover_power로 계산한 값
+#       (50W × 5s = 0.069 Wh)의 약 72배라 재검토가 필요하다.
 
 energy_model:
   ros__parameters:
-    # ===== 비용 함수 가중치 =====
-    # α, β, γ — 임무 목적에 따라 조정
-    # 에너지 최소화 우선: α 크게, γ 작게
-    # 시간 최소화 우선: γ 크게, α 작게
+    # ===== 비용 함수 가중치 (정규화, 합 1.0 권장) =====
+    # 임무 목적에 따라 조정한다.
     cost_weights:
-      alpha: 1.0     # E_motion 가중치 (에너지)
-      beta: 1.0      # E_switch 가중치 (모드 전환 패널티)
-      gamma: 0.5     # T 가중치 (시간)
-      # TODO: Phase 2 실측 후 grid search 또는 수동 튜닝으로 최적값 결정
+      w_energy: 0.5     # 총 에너지(주행+전환) — 에너지 절약
+      w_switch: 0.2     # 전환 '횟수' — 모드 전환 억제 (에너지와 별개)
+      w_time:   0.3     # 총 시간 — 시간 단축
+
+      # 프리셋 (참고)
+      #   에너지 우선: 0.7 / 0.2 / 0.1
+      #   균형형:      0.5 / 0.2 / 0.3   <- 현재
+      #   시간 우선:   0.3 / 0.1 / 0.6
+      #
+      # 참고: 이전 설정(α=1.0, β=1.0, γ=0.5)에서는 모드 전환 페널티가
+      # 비용의 79%를 차지해 최적해가 비행을 한 번도 선택하지 않았다
+      # (benchmark/RESEARCH_LOG.md).
+
+    # ===== 정규화 참조값 =====
+    # 아래 모드별 파라미터에서 자동 유도하므로 따로 지정하지 않는다:
+    #   E_ref = ground_mode.energy_per_meter   (평지 1m 주행 에너지)
+    #   T_ref = 1 / ground_mode.speed          (평지 1m 주행 시간)
+    # 전환 항은 횟수라 참조값이 필요 없다.
+    #
+    # 참조값을 파라미터에서 유도하는 이유: 실측으로 파라미터가 바뀌어도
+    # 가중치의 의미가 그대로 유지된다 (wE=0.5는 늘 '평지 1m 주행 대비' 기준).
 
     # ===== 모드별 에너지 소모율 =====
     # 단위: Wh/m (이동 거리당 에너지)
-    # Phase 2 INA226 실측으로 커브 피팅 후 교체
+    # Phase 2 INA226 실측 + JMP 회귀로 커브 피팅 후 교체
     ground_mode:
       energy_per_meter: 0.5          # Wh/m — 평지 주행 기준
       # 경사/거친 지형은 traversability cost에서 추가 반영
       speed: 0.3                     # m/s — 평균 주행 속도
 
-      # ===== Traverse "통행료" 모델 =====
-      # Rover-traversable 장애물 위로 직진 시: 장애물 경계선을 넘을 때마다 일회성 비용 부과.
-      # (오르막 진입 + 내리막 퇴장 = 2회 부과)
-      # 평지는 0.5 Wh/m로 동일, 장애물 통과만 boundary toll로 차이를 만듦.
-      # Phase 2 INA226 실측 시 h-scaling 곡선으로 교체 예정.
-      obstacle_step_energy: 0.5      # Wh — 장애물-바닥 경계 1회 교차당 추가 에너지
-
     air_mode:
-      energy_per_meter: 0.6          # Wh/m — 수평 비행 (hover 50W + 추진 마진 포함 1차 추정)
+      energy_per_meter: 2.0          # Wh/m — 수평 비행 기준
       hover_power: 50.0              # W — 호버링 전력
       speed: 0.5                     # m/s — 평균 비행 속도
 
-    # ===== 모드 전환 비용 =====
-    mode_switch:
-      # 이륙 (Ground → Air)
-      takeoff_energy: 0.5            # Wh — 이륙 1회 에너지 (모터 가속 + 초기 추력)
-      takeoff_time: 5.0              # seconds — 이륙 소요 시간
+    # ===== 장애물 등반 (밟고 넘기) =====
+    # 로버가 장애물 위로 타고 넘는 동작.
+    # 우회(돌아가기) / 등반(밟고넘기) / 비행(넘어가기) 세 방식을 비교하기 위해
+    # 등반을 별도 모드로 모델링한다.
+    #
+    # 주의: 이 값들은 INA226 실측 전 추정값이다.
+    #   위치에너지만 계산하면 (로봇 2.72kg, h=0.7m, 효율 0.4)
+    #   0.013 Wh 로 평지 주행 2.6cm 에 불과해 사실상 공짜가 된다.
+    #   실제 등반은 모터 토크 급증·슬립·저속 주행 때문에 훨씬 크므로,
+    #   위치에너지 모델을 그대로 쓰면 등반이 항상 유리하게 나와 비교가 무의미해진다.
+    #   실측 전까지는 이 값을 sweep 해서 "얼마 이하면 등반이 유리한가"를 본다.
+    climb_mode:
+      # 넘을 수 있는 최대 장애물 높이.
+      # 이보다 높으면 등반 불가 — 우회하거나 비행해야 한다.
+      max_height: 0.7                # m
 
-      # 착륙 (Air → Ground)
-      landing_energy: 0.3            # Wh — 착륙 1회 에너지
-      landing_time: 4.0              # seconds — 착륙 소요 시간
+      # 장애물 높이 1m 당 추가 에너지 (평지 주행에 더해짐)
+      energy_per_height_m: 2.0       # Wh/m  <- sweep 대상, 실측 필요
+
+      # 등반 중 속도 배수 (평지 대비). 0.5 면 절반 속도.
+      speed_factor: 0.4
+
+    # ===== 모드 전환 비용 =====
+    # 정의: 전환에 이착륙을 포함한다.
+    #   Ground -> Air : 서보 전환 + spin-up + 이륙
+    #   Air -> Ground : 착륙 + 서보 복귀
+    # 이렇게 정의해야 '전환 비용'이 명확히 잡혀 불필요한 전환을 억제하기 쉽다.
+    mode_switch:
+      takeoff_energy: 5.0            # Wh — 이륙 1회 에너지
+      takeoff_time: 5.0              # seconds
+      landing_energy: 3.0            # Wh — 착륙 1회 에너지
+      landing_time: 4.0              # seconds
 
       # 고도별 추가 에너지 — 높이 올라갈수록 이착륙 비용 증가
-      energy_per_altitude_meter: 0.4 # Wh/m — 고도 1m당 추가 에너지 (상승 중 추력 증가분)
+      energy_per_altitude_meter: 2.0 # Wh/m
 
     # ===== Ground Effect 보정 =====
     # 장애물 근접 비행 시 추력 변동 → 추가 전력
@@ -64,5 +111,20 @@ energy_model:
       enabled: true
       # 장애물 상단으로부터의 거리가 이 값 이하일 때 적용
       activation_height: 0.5         # m
-      # 추가 전력 비율 (예: 1.15 = 15% 추가)
-      power_multiplier: 1.15
+      power_multiplier: 1.15         # 1.15 = 15% 추가
+      # 주의: hybrid_astar_params.yaml 의 flight_clearance(0.8)가 이 값보다
+      #       크면, 3D 상태공간에서는 clearance가 항상 0.8로 고정되어
+      #       ground effect가 영원히 발동하지 않는다. 현재가 그 상태다.
+      #       4D로 확장하거나 flight_clearance를 낮춰야 의미를 갖는다.
+
+    # ===== idle power 보정 =====
+    # 측정 에너지에는 Pixhawk/Teensy/센서/BEC 등 기본 소비전력이 포함된다.
+    # 이걸 E_motion에 그대로 넣고 시간 항도 더하면 시간이 이중 반영된다.
+    # 따라서 실측 시 idle 상태를 따로 재고 빼는 방식을 쓴다:
+    #     E_motion_corrected = E_measured - P_idle × T
+    # 아래 값은 Phase 2 실측으로 채울 것.
+    idle_power:
+      enabled: false                 # 실측 전이므로 비활성
+      ground_w: 0.0                  # W — 주행 대기 전력
+      air_w: 0.0                     # W — 비행계 대기 전력
+      logic_w: 0.0                   # W — 로직/센서 전력

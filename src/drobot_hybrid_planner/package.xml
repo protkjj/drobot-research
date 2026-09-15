@@ -3,24 +3,30 @@
 <package format="3">
   <name>drobot_hybrid_planner</name>
   <version>0.1.0</version>
-  <description>Hybrid RRT* 기반 Nav2 글로벌 플래너 플러그인 (에너지 인식 2.5D 경로 계획)</description>
+  <description>Hybrid A* 기반 Nav2 글로벌 플래너 플러그인 (에너지 인식 2.5D 경로 계획)</description>
   <maintainer email="dongukleokim@gmail.com">leo11dk</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
   <depend>nav2_core</depend>
   <depend>nav2_costmap_2d</depend>
+  <depend>nav2_util</depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>pluginlib</depend>
+  <depend>tf2_ros</depend>
   <depend>drobot_msgs</depend>
 
+  <test_depend>ament_cmake_gtest</test_depend>
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
+    <nav2_core plugin="${prefix}/hybrid_planner_plugin.xml" />
   </export>
 </package>

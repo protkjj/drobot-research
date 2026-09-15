@@ -1,0 +1,13 @@
+<!-- Nav2 costmap 레이어 플러그인 등록 -->
+<library path="elevation_costmap_layer">
+  <class
+    name="drobot_costmap_2_5d::ElevationLayer"
+    type="drobot_costmap_2_5d::ElevationLayer"
+    base_class_type="nav2_costmap_2d::Layer">
+    <description>
+      RGB-D + LiDAR 융합 2.5D elevation 레이어.
+      셀별 높이를 누적하고 경사/거칠기/단차로 traversability를 판정해
+      Free / Rover-traversable / Fly-over / Impassable 4단계로 분류한다.
+    </description>
+  </class>
+</library>

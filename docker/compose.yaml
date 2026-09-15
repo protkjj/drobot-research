@@ -2,6 +2,7 @@ services:
   px4_sim:
     build:
       context: ./px4_sim/
+      network: host   # ros2 와 같은 이유 (위 주석 참고)
     container_name: drobot_px4_sim
     privileged: true
     environment:
@@ -29,6 +30,11 @@ services:
   ros2:
     build:
       context: ./ros2/
+      # 빌드 중 호스트 네트워크를 쓴다.
+      # packages.ros.org 가 DNS에서 IPv6 주소만 주는데 Docker 기본 브리지는
+      # IPv6 를 못 써서 IPv4(140.211.166.134)로 폴백하고, 그 경로가 막혀 있다.
+      # 실제로 ros-jazzy-rqt-gui 다운로드에서 Connection timed out 이 반복됐다.
+      network: host
     container_name: drobot_ros2
     privileged: true
     environment:

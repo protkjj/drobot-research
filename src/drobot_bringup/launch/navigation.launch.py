@@ -12,6 +12,7 @@ import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, ExecuteProcess, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -33,7 +34,17 @@ def launch_setup(context):
     goal_x, goal_y = 2.0, 10.0
 
     # URDF (from drobot_description)
-    urdf_file = os.path.join(desc_pkg, 'urdf', 'drobot.urdf.xacro')
+    # 원본 drobot.urdf.xacro 는 STL 메시를 참조하는데, 그 파일들이
+    # Git LFS 포인터만 남고 실제 데이터가 없어 Gazebo 가 로봇을 못 만든다.
+    # robot_model:=primitives 로 단순 도형 버전을 쓴다 (기본값).
+    # STL 을 되찾으면 robot_model:=mesh 로 원본을 쓰면 된다.
+    gz_gui = context.launch_configurations.get('gz_gui', 'true').lower() == 'true'
+    use_rviz = context.launch_configurations.get('use_rviz', 'true').lower() == 'true'
+    robot_model = context.launch_configurations.get('robot_model', 'primitives')
+    urdf_name = ('drobot.urdf.xacro' if robot_model == 'mesh'
+                 else 'drobot_primitives.urdf.xacro')
+    urdf_file = os.path.join(desc_pkg, 'urdf', urdf_name)
+    print(f"[INFO] robot_model={robot_model} -> {urdf_name}")
     robot_description = ParameterValue(
         Command(['xacro ', urdf_file]),
         value_type=str
@@ -54,6 +65,7 @@ def launch_setup(context):
     for ws in ws_candidates:
         ws_src = os.path.join(ws, 'src', 'drobot_description', 'worlds')
         source_generated_candidates.extend([
+            os.path.join(ws_src, 'benchmark', f'{world}.sdf'),
             os.path.join(ws_src, 'generated', f'{world}.sdf'),
             os.path.join(ws_src, 'generated', f'{world}.world'),
         ])
@@ -65,6 +77,9 @@ def launch_setup(context):
         ])
 
     world_candidates = [
+        # 벤치마크 맵을 먼저 찾는다 (benchmark/export_sdf.py 로 생성).
+        # 원본 월드들은 Git LFS 자산이 서버에 없어 복구 불가 상태다.
+        os.path.join(desc_pkg, 'worlds', 'benchmark', f'{world}.sdf'),
         os.path.join(desc_pkg, 'worlds', f'{world}.sdf'),
         os.path.join(desc_pkg, 'worlds', f'{world}.world'),
         os.path.join(desc_pkg, 'worlds', 'original', f'{world}.sdf'),
@@ -87,7 +102,17 @@ def launch_setup(context):
         world_file = next((p for p in fallback_candidates if os.path.exists(p)), fallback_candidates[0])
 
     # Config files (all from bringup)
-    nav2_params = os.path.join(bringup_pkg, 'config', 'navigation', 'nav2_params.yaml')
+    # planner 인자로 baseline과 제안 방법을 바꿔가며 실험할 수 있다.
+    #   smac2d   : Nav2 SMAC 2D (지상 전용) — logging_config.yaml 의 Baseline 1
+    #   proposed : 에너지 인식 2.5D 하이브리드 A* + ElevationLayer
+    planner = context.launch_configurations.get('planner', 'smac2d')
+    if planner == 'proposed':
+        nav2_params = os.path.join(
+            bringup_pkg, 'config', 'navigation', 'nav2_params_hybrid.yaml')
+    else:
+        nav2_params = os.path.join(
+            bringup_pkg, 'config', 'navigation', 'nav2_params.yaml')
+    print(f"[INFO] planner={planner} -> {os.path.basename(nav2_params)}")
     bt_xml = os.path.join(bringup_pkg, 'config', 'navigation', 'navigate_with_replanning.xml')
     slam_params = os.path.join(bringup_pkg, 'config', 'common', 'slam_params.yaml')
     ekf_params = os.path.join(bringup_pkg, 'config', 'common', 'ekf.yaml')
@@ -133,8 +158,11 @@ def launch_setup(context):
         os.path.join(gz_sim_pkg, 'launch', 'gz_sim.launch.py')
     ]),
     launch_arguments={
-        # '-r'을 추가하여 센서 시스템을 강제로 로드하고 바로 시작하게 합니다.
-        'gz_args': f'-r {world_file}', 
+        # '-r' 은 센서 시스템을 로드하고 바로 시작하게 한다.
+        # '-s' 는 서버만 띄운다 (GUI 없음).
+        #   GUI + RViz 가 X 서버와 GPU 를 점유하면 원격 데스크톱 입력이
+        #   먹통이 되고 SSH 까지 끊긴 적이 있어, 기본을 headless 로 둔다.
+        'gz_args': (f'-r {world_file}' if gz_gui else f'-r -s {world_file}'),
         'on_exit_shutdown': 'true'
     }.items()
     )
@@ -164,7 +192,8 @@ def launch_setup(context):
         name='rviz2',
         arguments=['-d', rviz_config],
         parameters=[{'use_sim_time': use_sim_time}],
-        output='screen'
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('use_rviz')),
     )
 
     # Gazebo OdometryPublisher가 odom을 world 절대좌표로 발행 → slam_toolbox map = world.
@@ -340,6 +369,33 @@ def generate_launch_description():
             'world',
             default_value='empty',
             description='World name (empty, warehouse, f1_circuit, office_maze, param_test)'
+        ),
+        DeclareLaunchArgument(
+            'gz_gui',
+            default_value='true',
+            description='Gazebo GUI 표시 (false면 서버만 — 원격 작업 시 권장)'
+        ),
+        DeclareLaunchArgument(
+            'use_rviz',
+            default_value='true',
+            description='RViz 실행 (false면 미실행 — 원격 작업 시 권장)'
+        ),
+        DeclareLaunchArgument(
+            'robot_model',
+            default_value='primitives',
+            choices=['primitives', 'mesh'],
+            description=(
+                'primitives(단순 도형, STL 불필요) 또는 mesh(원본 STL 필요)'
+            )
+        ),
+        DeclareLaunchArgument(
+            'planner',
+            default_value='smac2d',
+            choices=['smac2d', 'proposed'],
+            description=(
+                'Global planner: smac2d(baseline, 지상 전용) 또는 '
+                'proposed(하이브리드 A* + 2.5D elevation)'
+            )
         ),
         OpaqueFunction(function=launch_setup),
     ])

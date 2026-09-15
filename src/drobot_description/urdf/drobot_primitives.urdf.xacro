@@ -1,0 +1,420 @@
+<?xml version="1.0"?>
+<!-- drobot — STL 메시를 단순 도형(박스/실린더)으로 대체한 버전.
+
+     왜 필요한가:
+       원본 drobot.urdf.xacro 가 참조하는 STL 13개가 Git LFS 포인터만 남고
+       실제 데이터가 서버에 없어 Gazebo 가 로봇을 만들지 못한다
+       ("Unable to read STL[...]").
+
+     원본에서 메시는 전부 <collision> 에만 쓰이고 <visual> 에는 없었으므로,
+     충돌 형상만 유지하면 시뮬레이션이 성립한다.
+     치수는 원본 URDF 의 관성 텐서에서 역산했다 (균일 박스 가정):
+         ixx = m(y^2+z^2)/12,  iyy = m(x^2+z^2)/12,  izz = m(x^2+y^2)/12
+
+     STL 을 되찾으면 원본 drobot.urdf.xacro 를 그대로 쓰면 된다.
+     이 파일은 그때까지의 대체품이다. -->
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="drobot">
+
+  <!-- ============================================================
+       Source: drobotttt_urdf (SolidWorks SW2URDF export, Feb 2026)
+       Modifications:
+       - ROS1 catkin -> ROS2 ament, .urdf -> .urdf.xacro
+       - mesh paths: package://drobot_description/meshes/
+       - base_footprint added (z=0.25 offset)
+       - left_rear_arm mass=0 -> 0.05 + min inertia
+       - arm dynamics: damping=5.0 friction=1.0
+       - wheel dynamics: damping=0.1 friction=0.05
+       - left wheel axis flipped (0,-1,0) -> (0,1,0) for DiffDrive
+       ============================================================ -->
+
+  <xacro:include filename="$(find drobot_description)/urdf/gazebo.xacro"/>
+
+  <xacro:arg name="use_sim" default="true"/>
+  <xacro:arg name="use_ros2_control" default="true"/>
+
+  <!-- ==================== MATERIALS ==================== -->
+  <material name="base_color"><color rgba="0.81 0.86 0.90 1"/></material>
+  <material name="arm_color"><color rgba="0.87 0.32 0.16 1"/></material>
+  <material name="frame_color"><color rgba="0.30 0.30 0.30 1"/></material>
+  <material name="wheel_color"><color rgba="0.65 0.65 0.65 1"/></material>
+  <material name="sensor_color"><color rgba="0.79 0.82 0.93 1"/></material>
+
+  <!-- ==================== BASE ==================== -->
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.25" rpy="0 0 0"/>
+  </joint>
+
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0.00458103694773914 -0.00104664211572963 0.221167547284754" rpy="0 0 0"/>
+      <mass value="0.832637440945029"/>
+      <inertia ixx="0.000773069077682801" ixy="-7.38474804169069E-08" ixz="3.15446327066613E-05"
+               iyy="0.00170450440360595" iyz="9.65699121565219E-07" izz="0.00134874358561967"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.1280 0.0550 0.0900"/></geometry>
+      <material name="base_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.1280 0.0550 0.0900"/></geometry>
+    </collision>
+  </link>
+
+  <!-- ==================== LIDAR ==================== -->
+  <link name="lidar">
+    <inertial>
+      <origin xyz="-0.0215847721606996 0.00397566854868606 -0.00218033584701988" rpy="0 0 0"/>
+      <mass value="0.00105539669078503"/>
+      <inertia ixx="1.6596115838381E-08" ixy="4.5351666504703E-24" ixz="-8.45778550488722E-25"
+               iyy="1.98921505758854E-08" iyz="2.17400907909987E-25" izz="2.93717011285355E-08"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.0500 0.0500 0.0400"/></geometry>
+      <material name="sensor_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.0500 0.0500 0.0400"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <origin xyz="0.010101 -0.027788 0.30154" rpy="3.1416 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="lidar"/>
+  </joint>
+
+  <!-- ==================== CAMERA ==================== -->
+  <link name="camera">
+    <inertial>
+      <origin xyz="-0.0215847721606996 0.00397566854868603 -0.00218033584701988" rpy="3.1416 0 3.1416"/>
+      <mass value="0.00105539669078502"/>
+      <inertia ixx="1.65961158383809E-08" ixy="-6.9134081160347E-24" ixz="-1.3026067311437E-23"
+               iyy="1.98921505758854E-08" iyz="1.59079600624928E-24" izz="2.93717011285354E-08"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="3.1416 0 3.1416"/>
+              <geometry><box size="0.0900 0.0250 0.0250"/></geometry>
+      <material name="sensor_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="3.1416 0 3.1416"/>
+              <geometry><box size="0.0900 0.0250 0.0250"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <origin xyz="0.010101 -0.027788 0.36" rpy="0 0 0"/>
+    <parent link="base_link"/>
+    <child link="camera"/>
+  </joint>
+
+  <!-- ==================== IMU (virtual, no mesh) ==================== -->
+  <link name="imu_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="1e-06" ixy="0" ixz="0" iyy="1e-06" iyz="0" izz="1e-06"/>
+    </inertial>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0.01" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ==================== LEFT FRONT ARM ==================== -->
+  <link name="left_front_arm">
+    <inertial>
+      <origin xyz="0.018998 0.04 0.112534" rpy="0 0 0"/>
+      <mass value="0.123064431731573"/>
+      <inertia ixx="0.000135741612972814" ixy="6.13644622591408E-06" ixz="-3.91949328277525E-06"
+               iyy="6.76036048729945E-05" iyz="4.48906032629936E-05" izz="0.000106939767969889"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 -0.216881" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+      <material name="arm_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.216881" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="lf_arm_rev" type="revolute">
+    <origin xyz="0.001 0.024 0.240" rpy="3.1416 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="left_front_arm"/>
+    <axis xyz="-1 0 0"/>
+    <limit lower="0" upper="1.5708" effort="14.0" velocity="0.5"/>
+    <dynamics damping="4.0" friction="5.0"/>
+  </joint>
+
+  <!-- ==================== LEFT SIDE FRAME ==================== -->
+  <link name="left_side_frame">
+    <inertial>
+      <origin xyz="0.000123207540564108 0.109960226689103 0.335761073502946" rpy="0 0 0"/>
+      <mass value="0.385275324463581"/>
+      <inertia ixx="0.000226753304752499" ixy="-1.11398827218514E-05" ixz="6.22551133000347E-06"
+               iyy="0.00238329526316141" iyz="-5.33911597507339E-05" izz="0.00245899243822558"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.2680 0.0690 0.0490"/></geometry>
+      <material name="frame_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.2680 0.0690 0.0490"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="left_sf_fix" type="fixed">
+    <origin xyz="0.0005 -0.000798 -0.217469" rpy="0.010035 0 0"/>
+    <parent link="left_front_arm"/>
+    <child link="left_side_frame"/>
+  </joint>
+
+  <!-- ==================== LEFT FRONT WHEEL ==================== -->
+  <link name="left_front_wheel">
+    <inertial>
+      <origin xyz="-3.80634406216274E-08 0.0147130977298118 -4.33058131021902E-08" rpy="0 0 0"/>
+      <mass value="0.154468227846206"/>
+      <inertia ixx="0.000600972336966455" ixy="-1.7094296974559E-11" ixz="1.67775124672545E-10"
+               iyy="0.00115446036705922" iyz="-2.61109881198951E-11" izz="0.000600972175604584"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+      <material name="wheel_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+    </collision>
+  </link>
+
+  <!-- LEFT WHEELS: axis flipped to (0,1,0) for DiffDrive compatibility
+       Left arm rpy~(pi,0,pi) flips the Y-axis relative to base_link.
+       SW2URDF exports axis=(0,-1,0) for all wheels, but left-side Y
+       is inverted in world frame, so we flip to (0,1,0) so both sides
+       produce forward motion with positive velocity. -->
+  <joint name="lf_wheel_con" type="continuous">
+    <origin xyz="-0.11656 0.128 0.346" rpy="0 0 0"/>
+    <parent link="left_side_frame"/>
+    <child link="left_front_wheel"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.1" friction="0.05"/>
+  </joint>
+
+  <!-- ==================== LEFT REAR WHEEL ==================== -->
+  <link name="left_rear_wheel">
+    <inertial>
+      <origin xyz="-0.000764539518262372 0.0131052613053511 -0.000764533553625352" rpy="0 0 0"/>
+      <mass value="0.152313021640434"/>
+      <inertia ixx="0.000598326645638881" ixy="1.16817760587612E-11" ixz="1.64181067073089E-10"
+               iyy="0.00115252805512864" iyz="2.67998148070656E-11" izz="0.000598326477272364"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+      <material name="wheel_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="lr_wheel_con" type="continuous">
+    <origin xyz="0.11733 0.128 0.34676" rpy="0 0 0"/>
+    <parent link="left_side_frame"/>
+    <child link="left_rear_wheel"/>
+    <axis xyz="0 1 0"/>
+    <dynamics damping="0.1" friction="0.05"/>
+  </joint>
+
+  <!-- ==================== LEFT REAR ARM ==================== -->
+  <!-- SW2URDF exported mass=0, inertia=0 (degenerate).
+       Fixed to mass=0.05, inertia=1e-04 for stable simulation. -->
+  <link name="left_rear_arm">
+    <inertial>
+      <origin xyz="0.018998 -0.000534 0.112534" rpy="0 0 0"/>
+      <mass value="0.123064431731573"/>
+      <inertia ixx="0.000135741612972814" ixy="6.13644622591408E-06" ixz="-3.91949328277525E-06"
+               iyy="6.76036048729945E-05" iyz="4.48906032629936E-05" izz="0.000106939767969889"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 -0.022671 -0.216881" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+      <material name="arm_color"/>
+    </visual>
+    <!-- <collision>
+      <origin xyz="0 -0.003671 -0.216881" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+    </collision> -->
+  </link>
+
+  <joint name="lr_arm_rev" type="revolute">
+    <origin xyz="0.001 0.024 0.240" rpy="1.5708 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="left_rear_arm"/>
+    <axis xyz="-1 0 0"/>
+    <limit lower="0" upper="1.5708" effort="14.0" velocity="0.5"/>
+    <dynamics damping="3.0" friction="3.0"/>
+  </joint>
+
+  <!-- ==================== RIGHT FRONT ARM ==================== -->
+  <link name="right_front_arm">
+    <inertial>
+      <origin xyz="-0.072133 0.017001 -0.051593" rpy="0 0 0"/>
+      <mass value="0.123064431731573"/>
+      <inertia ixx="0.000135741612972814" ixy="6.13644622591408E-06" ixz="-3.91949328277525E-06"
+               iyy="6.76036048729945E-05" iyz="4.48906032629936E-05" izz="0.000106939767969889"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 -0.002488 -0.175993" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+      <material name="arm_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.002488 -0.175993" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="rf_arm_rev" type="revolute">
+    <origin xyz="0.001 -0.025 0.249" rpy="0 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="right_front_arm"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="1.5708" effort="14.0" velocity="0.5"/>
+    <dynamics damping="4.0" friction="5.0"/>
+  </joint>
+
+  <!-- ==================== RIGHT SIDE FRAME ==================== -->
+  <link name="right_side_frame">
+    <inertial>
+      <origin xyz="-0.0016945696607339 0.00768032725914354 0.0578233422450269" rpy="0 0 0"/>
+      <mass value="0.385275324463581"/>
+      <inertia ixx="0.000226753304752499" ixy="-1.11398827218514E-05" ixz="6.22551133000347E-06"
+               iyy="0.00238329526316141" iyz="-5.33911597507339E-05" izz="0.00245899243822558"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.2680 0.0690 0.0490"/></geometry>
+      <material name="frame_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+              <geometry><box size="0.2680 0.0690 0.0490"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="right_sf_fix" type="fixed">
+    <origin xyz="0.0005 0.165912 -0.131417" rpy="1.5947 0 0"/>
+    <parent link="right_front_arm"/>
+    <child link="right_side_frame"/>
+  </joint>
+
+  <!-- ==================== RIGHT FRONT WHEEL ==================== -->
+  <link name="right_front_wheel">
+    <inertial>
+      <origin xyz="3.51455239633314E-08 0.0147130944445312 -4.61456092365475E-08" rpy="0 0 0"/>
+      <mass value="0.15446818358736"/>
+      <inertia ixx="0.000600972029928564" ixy="2.98508353457573E-11" ixz="-1.05292533647964E-10"
+               iyy="0.00115446021177649" iyz="-1.79621475028882E-11" izz="0.000600972338304762"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+      <material name="wheel_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+    </collision>
+  </link>
+
+  <!-- RIGHT WHEELS: axis kept at (0,-1,0) as exported.
+       Right arm rpy~(0,0,pi) does NOT flip Y in the same way,
+       so original axis direction produces correct forward motion. -->
+  <joint name="rf_wheel_con" type="continuous">
+    <origin xyz="-0.11656 0 0.039" rpy="-1.5708 0 0"/>
+    <parent link="right_side_frame"/>
+    <child link="right_front_wheel"/>
+    <axis xyz="0 -1 0"/>
+    <dynamics damping="0.1" friction="0.05"/>
+  </joint>
+
+  <!-- ==================== RIGHT REAR WHEEL ==================== -->
+  <link name="right_rear_wheel">
+    <inertial>
+      <origin xyz="3.51455232278086E-08 0.0147130944445312 -4.61456094308366E-08" rpy="0 0 0"/>
+      <mass value="0.154468183587361"/>
+      <inertia ixx="0.000600972029928563" ixy="2.98508356715693E-11" ixz="-1.05292536456407E-10"
+               iyy="0.00115446021177649" iyz="-1.79621477375163E-11" izz="0.000600972338304764"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+      <material name="wheel_color"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
+              <geometry><cylinder radius="0.1060" length="0.0430"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="rr_wheel_con" type="continuous">
+    <origin xyz="0.11656 0 0.039" rpy="-1.5708 0 0"/>
+    <parent link="right_side_frame"/>
+    <child link="right_rear_wheel"/>
+    <axis xyz="0 -1 0"/>
+    <dynamics damping="0.1" friction="0.05"/>
+  </joint>
+
+  <!-- ==================== RIGHT REAR ARM ==================== -->
+  <link name="right_rear_arm">
+    <inertial>
+      <origin xyz="-0.072133 0.027001 -0.151593" rpy="0 0 0"/>
+      <mass value="0.123064431731573"/>
+      <inertia ixx="0.000135741612972814" ixy="6.13644622591408E-06" ixz="-3.91949328277525E-06"
+               iyy="6.76036048729945E-05" iyz="4.48906032629936E-05" izz="0.000106939767969889"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 -0.022488 -0.175993" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+      <material name="arm_color"/>
+    </visual>
+    <!-- deleted temporarly-->
+    <!-- <collision> 
+      <origin xyz="0 -0.002488 -0.180993" rpy="0 0 0"/>
+              <geometry><box size="0.0430 0.0920 0.0690"/></geometry>
+    </collision> -->
+  </link>
+
+  <joint name="rr_arm_rev" type="revolute">
+    <origin xyz="0.001 -0.025 0.249" rpy="1.5708 0 3.1416"/>
+    <parent link="base_link"/>
+    <child link="right_rear_arm"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="0" upper="1.5708" effort="14.0" velocity="0.5"/>
+    <dynamics damping="3.0" friction="3.0"/>
+  </joint>
+
+  <!-- ==================== ROS2 CONTROL ==================== -->
+  <xacro:if value="$(arg use_ros2_control)">
+    <xacro:include filename="$(find drobot_description)/urdf/ros2_control.xacro"/>
+  </xacro:if>
+
+</robot>
