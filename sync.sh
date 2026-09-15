@@ -11,6 +11,7 @@
 #   ./sync.sh test         동기화 + 빌드 + 테스트
 #   ./sync.sh watch        파일이 바뀔 때마다 자동 동기화 (Ctrl+C로 중지)
 #   ./sync.sh sim [world] [planner]   시뮬레이션 실행 (기본: medium_open proposed)
+#   ./sync.sh run <world> [planner]   시뮬레이션 + 목표 전송 + 궤적 기록 (포스터용)
 #   ./sync.sh stop         시뮬레이션 종료
 #
 # 주의: 빌드와 시뮬레이션을 동시에 돌리지 않는다.
@@ -19,8 +20,12 @@
 
 set -euo pipefail
 
-REMOTE="vail-detop"
-REMOTE_DIR="~/drobot-research"
+# 머신이 두 대다 — 환경변수로 바꿀 수 있게 둔다.
+#   detop       집 데스크탑, RTX 5070 Ti, 저장소가 ~/Desktop/drobot-research
+#   vail-detop  랩실 데스크탑, RTX 3070 Ti, 저장소가 ~/drobot-research
+# 예:  DROBOT_REMOTE=vail-detop DROBOT_REMOTE_DIR='~/drobot-research' ./sync.sh build
+REMOTE="${DROBOT_REMOTE:-detop}"
+REMOTE_DIR="${DROBOT_REMOTE_DIR:-~/Desktop/drobot-research}"
 LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"
 
 # --delete 를 쓰는 이유:
@@ -114,6 +119,37 @@ do_sim() {
   echo "    확인이 끝나면 반드시: ./sync.sh stop"
 }
 
+do_run() {
+  # 시뮬레이션을 headless 로 띄우고, 목표를 보내고, 궤적을 받아온다.
+  #
+  # RViz 를 안 쓰는 이유: GPU·X 서버를 점유해 원격 데스크톱이 먹통이 된다.
+  # 대신 /plan · /odom · /mode_switch_points 를 JSON 으로 떠서 가져오고
+  # 그림은 macOS 에서 benchmark/plot_sim_run.py 로 그린다.
+  local world="${2:-medium_open}"
+  local planner="${3:-proposed}"
+  local json="sim_${world}.json"
+
+  stop_sim
+  do_sim "" "$world" "$planner" headless
+
+  echo "==> Nav2 기동 대기 (25초)"
+  sleep 25
+
+  echo "==> 목표 전송 + 궤적 기록: $world"
+  ssh -t "$REMOTE" "docker exec -u \$(id -u):\$(id -g) drobot_ros2 bash -lc '
+      cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
+      python3 src/drobot_experiments/drobot_experiments/record_run.py \
+        --world $world --out /app/$json
+    '"
+
+  echo "==> 결과 회수"
+  rsync -az "$REMOTE:$REMOTE_DIR/$json" "$LOCAL_DIR/benchmark/results/$json"
+  echo "    benchmark/results/$json"
+
+  stop_sim
+  echo "==> 그림: python3 benchmark/plot_sim_run.py benchmark/results/$json"
+}
+
 case "${1:-sync}" in
   sync)
     do_sync
@@ -127,6 +163,9 @@ case "${1:-sync}" in
   sim)
     # 빌드 없이 시뮬레이션만 (이미 빌드돼 있을 때)
     stop_sim && do_sim "$@"
+    ;;
+  run)
+    do_sync && do_run "$@"
     ;;
   stop)
     stop_sim
@@ -148,7 +187,7 @@ case "${1:-sync}" in
     done
     ;;
   *)
-    echo "사용법: $0 [sync|build|test|watch|sim <world> <planner>|stop]" >&2
+    echo "사용법: $0 [sync|build|test|watch|sim <world> <planner>|run <world>|stop]" >&2
     exit 1
     ;;
 esac

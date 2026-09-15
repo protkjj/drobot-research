@@ -1,0 +1,221 @@
+{
+ "maps": [
+  "easy_open",
+  "easy_corridor",
+  "medium_open",
+  "medium_corridor",
+  "hard_open"
+ ],
+ "n_seeds": 5,
+ "rrt_budget_s": 2.0,
+ "sets": {
+  "default": {
+   "config": "src/drobot_hybrid_planner/config/energy_params.yaml",
+   "switch_wh": 8.0,
+   "wins_vs_best": 5,
+   "wins_vs_mean": 5,
+   "maps_with_flight": 0,
+   "rows": {
+    "easy_open": {
+     "rrt_best": {
+      "cost": 16.306390221374862,
+      "switches": 0,
+      "energy_wh": 10.19149388835929
+     },
+     "rrt_mean": 16.394165542853408,
+     "rrt_std": 0.07642818184853784,
+     "rrt_switch_mean": 0.0,
+     "n_found": 5,
+     "gain_vs_best": 0.10779221444347553,
+     "gain_vs_mean": 0.6426209392516812,
+     "astar": {
+      "cost": 16.288813202259448,
+      "switches": 0,
+      "energy_wh": 10.180508251412157,
+      "time_s": 0.28787179198116064
+     }
+    },
+    "easy_corridor": {
+     "rrt_best": {
+      "cost": 17.873104972013135,
+      "switches": 0,
+      "energy_wh": 11.17069060750821
+     },
+     "rrt_mean": 18.082641990914325,
+     "rrt_std": 0.16412583345710108,
+     "rrt_switch_mean": 0.0,
+     "n_found": 5,
+     "gain_vs_best": 1.369147541972169,
+     "gain_vs_mean": 2.5120565707591376,
+     "astar": {
+      "cost": 17.62839579461471,
+      "switches": 0,
+      "energy_wh": 11.017747371634195,
+      "time_s": 0.34470412496011704
+     }
+    },
+    "medium_open": {
+     "rrt_best": {
+      "cost": 27.621830000818264,
+      "switches": 0,
+      "energy_wh": 17.263643750511417
+     },
+     "rrt_mean": 28.127082586606956,
+     "rrt_std": 0.30099524876472994,
+     "rrt_switch_mean": 0.0,
+     "n_found": 5,
+     "gain_vs_best": 3.637804946173666,
+     "gain_vs_mean": 5.368778930884157,
+     "astar": {
+      "cost": 26.617001702824815,
+      "switches": 0,
+      "energy_wh": 16.63562606426551,
+      "time_s": 1.9582459169905633
+     }
+    },
+    "medium_corridor": {
+     "rrt_best": {
+      "cost": 29.378932565600216,
+      "switches": 0,
+      "energy_wh": 18.361832853500136
+     },
+     "rrt_mean": 30.150244294075996,
+     "rrt_std": 0.7188244179377679,
+     "rrt_switch_mean": 0.0,
+     "n_found": 5,
+     "gain_vs_best": 0.07689612716152279,
+     "gain_vs_mean": 2.633156076868373,
+     "astar": {
+      "cost": 29.356341304255874,
+      "switches": 0,
+      "energy_wh": 18.347713315159925,
+      "time_s": 2.0378865000093356
+     }
+    },
+    "hard_open": {
+     "rrt_best": {
+      "cost": 30.8351889315199,
+      "switches": 0,
+      "energy_wh": 19.271993082199938
+     },
+     "rrt_mean": 31.021923682221587,
+     "rrt_std": 0.19717899312564552,
+     "rrt_switch_mean": 0.0,
+     "n_found": 5,
+     "gain_vs_best": 4.397439626148535,
+     "gain_vs_mean": 4.97291394104684,
+     "astar": {
+      "cost": 29.47923011464748,
+      "switches": 0,
+      "energy_wh": 18.42451882165468,
+      "time_s": 2.2686735420138575
+     }
+    }
+   }
+  },
+  "derived": {
+   "config": "src/drobot_hybrid_planner/config/energy_params_derived.yaml",
+   "switch_wh": 0.8,
+   "wins_vs_best": 5,
+   "wins_vs_mean": 5,
+   "maps_with_flight": 4,
+   "rows": {
+    "easy_open": {
+     "rrt_best": {
+      "cost": 15.971727806965951,
+      "switches": 2,
+      "energy_wh": 11.42214177195711
+     },
+     "rrt_mean": 16.059747442512396,
+     "rrt_std": 0.06519466720077707,
+     "rrt_switch_mean": 2.0,
+     "n_found": 5,
+     "gain_vs_best": 0.3489153311368464,
+     "gain_vs_mean": 0.89507909776885,
+     "astar": {
+      "cost": 15.916,
+      "switches": 2,
+      "energy_wh": 11.61,
+      "time_s": 0.708604582992848
+     }
+    },
+    "easy_corridor": {
+     "rrt_best": {
+      "cost": 17.873104972013135,
+      "switches": 0,
+      "energy_wh": 11.17069060750821
+     },
+     "rrt_mean": 18.082641990914325,
+     "rrt_std": 0.16412583345710108,
+     "rrt_switch_mean": 0.0,
+     "n_found": 5,
+     "gain_vs_best": 1.369147541972169,
+     "gain_vs_mean": 2.5120565707591376,
+     "astar": {
+      "cost": 17.62839579461471,
+      "switches": 0,
+      "energy_wh": 11.017747371634195,
+      "time_s": 0.5349051670054905
+     }
+    },
+    "medium_open": {
+     "rrt_best": {
+      "cost": 22.049559522148407,
+      "switches": 2,
+      "energy_wh": 16.184894939715594
+     },
+     "rrt_mean": 23.138748187308085,
+     "rrt_std": 0.9703480785261707,
+     "rrt_switch_mean": 2.0,
+     "n_found": 5,
+     "gain_vs_best": 18.77388760528431,
+     "gain_vs_mean": 22.597368470331183,
+     "astar": {
+      "cost": 17.91,
+      "switches": 2,
+      "energy_wh": 13.280000000000001,
+      "time_s": 0.7986950409831479
+     }
+    },
+    "medium_corridor": {
+     "rrt_best": {
+      "cost": 29.362413970914112,
+      "switches": 0,
+      "energy_wh": 18.35150873182132
+     },
+     "rrt_mean": 30.053919955270572,
+     "rrt_std": 0.480113052018107,
+     "rrt_switch_mean": 0.0,
+     "n_found": 5,
+     "gain_vs_best": 28.42338127022411,
+     "gain_vs_mean": 30.070276592541646,
+     "astar": {
+      "cost": 21.016623097819643,
+      "switches": 2,
+      "energy_wh": 15.725094690630495,
+      "time_s": 1.9417815420310944
+     }
+    },
+    "hard_open": {
+     "rrt_best": {
+      "cost": 29.973534957424153,
+      "switches": 2,
+      "energy_wh": 20.856152251266582
+     },
+     "rrt_mean": 30.361655474788186,
+     "rrt_std": 0.36032813794515606,
+     "rrt_switch_mean": 2.0,
+     "n_found": 5,
+     "gain_vs_best": 34.642343561323095,
+     "gain_vs_mean": 35.477826575473756,
+     "astar": {
+      "cost": 19.59,
+      "switches": 2,
+      "energy_wh": 14.6,
+      "time_s": 0.8081683749915101
+     }
+    }
+   }
+  }
+ }
+}
