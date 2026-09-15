@@ -11,6 +11,19 @@ services:
       - LOCAL_GROUP_ID=${GID}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
+      # EGL/GLX 벤더를 NVIDIA 로 못박는다.
+      #
+      # 안 하면 Gazebo 가 Mesa/DRI 경로로 가서
+      #     libEGL warning: pci id for fd 69: 10de:2c05, driver (null)
+      # 를 내고 소프트웨어 렌더링으로 떨어진다 (10de:2c05 = RTX 5070 Ti).
+      # 그러면 /clock 이 1800 Hz 로 들쭉날쭉 나오고, ekf 가
+      # "Detected jump back in time. Clearing TF buffer." 를 반복하며
+      # base_footprint->odom TF 조회가 계속 실패해 로봇이 25 cm 만 움직이고 멈춘다.
+      #
+      # libEGL_nvidia.so 는 이미지 안에 정상적으로 있다(580.173.02).
+      # 선택이 잘못될 뿐이라 환경변수로 고정하면 된다 — 이미지 교체 불필요.
+      - __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ../:/app
@@ -57,6 +70,19 @@ services:
       - LOCAL_GROUP_ID=${GID}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
+      # EGL/GLX 벤더를 NVIDIA 로 못박는다.
+      #
+      # 안 하면 Gazebo 가 Mesa/DRI 경로로 가서
+      #     libEGL warning: pci id for fd 69: 10de:2c05, driver (null)
+      # 를 내고 소프트웨어 렌더링으로 떨어진다 (10de:2c05 = RTX 5070 Ti).
+      # 그러면 /clock 이 1800 Hz 로 들쭉날쭉 나오고, ekf 가
+      # "Detected jump back in time. Clearing TF buffer." 를 반복하며
+      # base_footprint->odom TF 조회가 계속 실패해 로봇이 25 cm 만 움직이고 멈춘다.
+      #
+      # libEGL_nvidia.so 는 이미지 안에 정상적으로 있다(580.173.02).
+      # 선택이 잘못될 뿐이라 환경변수로 고정하면 된다 — 이미지 교체 불필요.
+      - __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
       - ../:/app
