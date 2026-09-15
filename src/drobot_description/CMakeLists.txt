@@ -12,11 +12,9 @@ install(
   DIRECTORY
     urdf
     meshes
-    scripts
     config
     object
     worlds
-    models
   DESTINATION share/${PROJECT_NAME}
 )
 

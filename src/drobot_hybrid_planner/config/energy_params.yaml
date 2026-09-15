@@ -5,6 +5,13 @@
 #
 # 주의: 아래 값들은 Phase 2 에너지 실측 전 초기 추정값
 # INA226 실측 데이터로 커브 피팅 후 반드시 보정할 것
+#
+# 1차 합리적 추정 근거 (drobot 플랫폼: 소형 실내 hybrid 로봇 가정):
+# - 소형 드론 hover power ≈ 50 W, 비행 속도 0.5 m/s → air ≈ 0.06 Wh/m (순수 hover)
+# - 추진/저항/안전 마진 포함 → air 0.6 Wh/m (hover의 ~10배)
+# - 소형 다리 접이식 takeoff/landing: 모터 가속/감속 1~2초 → 0.3~0.5 Wh
+# - 고도별 추가 에너지: 상승 중 추력 증가분 — 1m당 0.4 Wh
+# 이 값들로 6×11 base map에서 height별 모드 우열이 자연스럽게 나뉘도록 1차 튜닝
 
 energy_model:
   ros__parameters:
@@ -26,23 +33,30 @@ energy_model:
       # 경사/거친 지형은 traversability cost에서 추가 반영
       speed: 0.3                     # m/s — 평균 주행 속도
 
+      # ===== Traverse "통행료" 모델 =====
+      # Rover-traversable 장애물 위로 직진 시: 장애물 경계선을 넘을 때마다 일회성 비용 부과.
+      # (오르막 진입 + 내리막 퇴장 = 2회 부과)
+      # 평지는 0.5 Wh/m로 동일, 장애물 통과만 boundary toll로 차이를 만듦.
+      # Phase 2 INA226 실측 시 h-scaling 곡선으로 교체 예정.
+      obstacle_step_energy: 0.5      # Wh — 장애물-바닥 경계 1회 교차당 추가 에너지
+
     air_mode:
-      energy_per_meter: 2.0          # Wh/m — 수평 비행 기준
+      energy_per_meter: 0.6          # Wh/m — 수평 비행 (hover 50W + 추진 마진 포함 1차 추정)
       hover_power: 50.0              # W — 호버링 전력
       speed: 0.5                     # m/s — 평균 비행 속도
 
     # ===== 모드 전환 비용 =====
     mode_switch:
       # 이륙 (Ground → Air)
-      takeoff_energy: 5.0            # Wh — 이륙 1회 에너지
+      takeoff_energy: 0.5            # Wh — 이륙 1회 에너지 (모터 가속 + 초기 추력)
       takeoff_time: 5.0              # seconds — 이륙 소요 시간
 
       # 착륙 (Air → Ground)
-      landing_energy: 3.0            # Wh — 착륙 1회 에너지
+      landing_energy: 0.3            # Wh — 착륙 1회 에너지
       landing_time: 4.0              # seconds — 착륙 소요 시간
 
       # 고도별 추가 에너지 — 높이 올라갈수록 이착륙 비용 증가
-      energy_per_altitude_meter: 2.0 # Wh/m — 고도 1m당 추가 에너지
+      energy_per_altitude_meter: 0.4 # Wh/m — 고도 1m당 추가 에너지 (상승 중 추력 증가분)
 
     # ===== Ground Effect 보정 =====
     # 장애물 근접 비행 시 추력 변동 → 추가 전력

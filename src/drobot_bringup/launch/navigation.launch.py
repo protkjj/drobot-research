@@ -9,7 +9,6 @@ Gazebo + SLAM + Nav2 한번에 실행
   ros2 launch drobot_bringup navigation.launch.py world:=f1_circuit
 """
 import os
-import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, ExecuteProcess, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -20,34 +19,18 @@ from ament_index_python.packages import get_package_share_directory
 from ros_gz_bridge.actions import RosGzBridge
 
 
-def get_spawn_position(bringup_pkg, world_name):
-    """Load spawn position from centralized YAML config."""
-    spawn_file = os.path.join(bringup_pkg, 'config', 'spawn_positions.yaml')
-    try:
-        with open(spawn_file, 'r') as f:
-            data = yaml.safe_load(f)
-        worlds = data.get('worlds', {})
-        pos = worlds.get(world_name, data.get('default', {'x': 0.0, 'y': 0.0}))
-        return str(pos['x']), str(pos['y'])
-    except Exception:
-        return '0.0', '0.0'
-
-
 def launch_setup(context):
-    """Setup launch with context for spawn positions."""
-    # Package directories
     bringup_pkg = get_package_share_directory('drobot_bringup')
     desc_pkg = get_package_share_directory('drobot_description')
     gz_sim_pkg = get_package_share_directory('ros_gz_sim')
 
-    # Get launch arguments
     use_sim_time = LaunchConfiguration('use_sim_time')
     world = context.launch_configurations.get('world', 'empty')
-
-    # Get spawn position for this world
-    default_x, default_y = get_spawn_position(bringup_pkg, world)
-    spawn_x = default_x
-    spawn_y = default_y
+    # 테스트 맵 start 좌표와 일치 (test_maps.py: start=(2.0, 1.0))
+    # yaw=π/2: 로봇 정면이 +y_world (목표 방향). LiDAR 마운트 정상화 후 재시도.
+    # (이전엔 lidar rpy 180°가 SLAM 통해 yaw 강제 보정시켰을 가능성)
+    spawn_x, spawn_y, spawn_yaw = '2.0', '1.0', '1.5708'
+    goal_x, goal_y = 2.0, 10.0
 
     # URDF (from drobot_description)
     urdf_file = os.path.join(desc_pkg, 'urdf', 'drobot.urdf.xacro')
@@ -117,8 +100,7 @@ def launch_setup(context):
     gz_resource_path = SetEnvironmentVariable(
         'GZ_SIM_RESOURCE_PATH',
         ':'.join([
-            os.path.join(desc_pkg, '..'),  # parent of drobot_description share
-            os.path.join(desc_pkg, 'models'),  # hospital world models (aws_robomaker etc.)
+            os.path.join(desc_pkg, '..'),
             os.environ.get('GZ_SIM_RESOURCE_PATH', ''),
         ])
     )
@@ -165,7 +147,8 @@ def launch_setup(context):
             '-name', 'drobot',
             '-x', spawn_x,
             '-y', spawn_y,
-            '-z', '0.15'
+            '-z', '0.05',
+            '-Y', spawn_yaw,
         ],
         output='screen'
     )
@@ -182,6 +165,23 @@ def launch_setup(context):
         arguments=['-d', rviz_config],
         parameters=[{'use_sim_time': use_sim_time}],
         output='screen'
+    )
+
+    # Gazebo OdometryPublisher가 odom을 world 절대좌표로 발행 → slam_toolbox map = world.
+    # 따라서 마커도 world 절대좌표 그대로 사용.
+    start_goal_markers = Node(
+        package='drobot_bringup',
+        executable='start_goal_markers',
+        name='start_goal_markers',
+        output='screen',
+        parameters=[{
+            'frame_id': 'map',
+            'start_x': float(spawn_x),
+            'start_y': float(spawn_y),
+            'goal_x': goal_x,
+            'goal_y': goal_y,
+            'use_sim_time': use_sim_time,
+        }],
     )
 
     # ========== Localization Nodes ==========
@@ -280,7 +280,7 @@ def launch_setup(context):
         }],
     )
 
-    # After 5s: unpause Gazebo
+    # After 5s: unpause Gazebo (Gazebo는 -r로 이미 실행 중이라 사실상 no-op이지만 안전망)
     unpause = TimerAction(
         period=5.0,
         actions=[
@@ -295,6 +295,22 @@ def launch_setup(context):
         ],
     )
 
+    # 물리/EKF 안정화 후 SLAM + Nav2를 일괄 기동.
+    # 초기 사선 인식 / drift로 인한 길찾기 실패 방지 (5초간 EKF가 정지 odom + IMU bias 수렴).
+    delayed_navigation = TimerAction(
+        period=5.0,
+        actions=[
+            slam_node,
+            slam_lifecycle,
+            controller_server,
+            planner_server,
+            behavior_server,
+            bt_navigator,
+            velocity_smoother,
+            nav_lifecycle,
+        ],
+    )
+
     return [
         # Environment
         gz_resource_path,
@@ -305,17 +321,11 @@ def launch_setup(context):
         ros_gz_bridge,
         unpause,
         rviz2,
-        # Localization
+        start_goal_markers,
+        # Localization (즉시 — odom/IMU 융합은 일찍 시작해야 SLAM 시작 시점에 안정)
         ekf_node,
-        slam_node,
-        slam_lifecycle,
-        # Navigation
-        controller_server,
-        planner_server,
-        behavior_server,
-        bt_navigator,
-        velocity_smoother,
-        nav_lifecycle,
+        # SLAM + Navigation (5초 지연)
+        delayed_navigation,
     ]
 
 

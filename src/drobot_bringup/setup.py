@@ -25,6 +25,8 @@ setup(
     license='TODO: License declaration',
     extras_require={'test': ['pytest']},
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'start_goal_markers = drobot_bringup.start_goal_markers:main',
+        ],
     },
 )

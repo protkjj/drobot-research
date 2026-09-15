@@ -8,6 +8,7 @@
   <license>MIT</license>
 
   <depend>rclpy</depend>
+  <depend>visualization_msgs</depend>
 
   <exec_depend>drobot_description</exec_depend>
   <exec_depend>drobot_controller</exec_depend>
