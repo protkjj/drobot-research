@@ -12,6 +12,7 @@
 #   ./sync.sh watch        파일이 바뀔 때마다 자동 동기화 (Ctrl+C로 중지)
 #   ./sync.sh sim [world] [planner]   시뮬레이션 실행 (기본: medium_open proposed)
 #   ./sync.sh run <world> [planner]   시뮬레이션 + 목표 전송 + 궤적 기록 (포스터용)
+#       DROBOT_ENERGY=derived ./sync.sh run medium_open   <- 비행이 선택되는 세트
 #   ./sync.sh stop         시뮬레이션 종료
 #
 # 주의: 빌드와 시뮬레이션을 동시에 돌리지 않는다.
@@ -28,14 +29,22 @@ REMOTE="${DROBOT_REMOTE:-detop}"
 REMOTE_DIR="${DROBOT_REMOTE_DIR:-~/Desktop/drobot-research}"
 LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/"
 
-# --delete 를 쓰는 이유:
-#   파일 이름을 바꾸면(예: hybrid_rrt_star_planner.hpp -> hybrid_astar_planner.hpp)
-#   이 옵션이 없을 때 원격에 옛 파일이 남아 빌드가 헷갈린다.
-#   build/install/log 는 아래 exclude 로 지키므로 안전하다.
+# --delete 를 기본에서 뺐다.
+#   원래는 파일 이름을 바꿨을 때 원격에 옛 파일이 남는 걸 막으려고 썼다.
+#   그런데 머신마다 고유 파일이 생기면서 그것들을 지워버렸다 —
+#   데탑의 documents/, base_map_h*.npz, start_goal_markers.py 가 실제로 삭제됐다
+#   (git 에서 복구했다). 두 머신을 오가며 쓰는 이상 --delete 는 위험하다.
+#
+#   이름 변경 뒤 옛 파일을 치워야 하면 명시적으로:
+#       DROBOT_RSYNC_DELETE=1 ./sync.sh
+#   이 경우 원격 고유 파일이 지워지므로 git 상태를 먼저 확인할 것.
 # macOS 기본 rsync 는 2.6.9(2006년)라 최신 옵션을 모른다.
 # --info=stats1 대신 --stats 를 쓴다 (구버전에도 있는 옵션).
+RSYNC_DELETE=""
+[ -n "${DROBOT_RSYNC_DELETE:-}" ] && RSYNC_DELETE="--delete"
+
 RSYNC_OPTS=(
-  -az --delete --stats
+  -az $RSYNC_DELETE --stats
   --exclude='.git'
   --exclude='build' --exclude='install' --exclude='log'
   --exclude='__pycache__' --exclude='*.pyc'
@@ -99,6 +108,7 @@ do_sim() {
   local world="${2:-medium_open}"
   local planner="${3:-proposed}"
   local mode="${4:-headless}"
+  local energy="${DROBOT_ENERGY:-default}"   # default | derived (§energy 인자)
 
   local gui_args=""
   local disp="-e DISPLAY=:0"
@@ -108,11 +118,11 @@ do_sim() {
     disp=""
   fi
 
-  echo "==> 시뮬레이션: world=$world planner=$planner mode=$mode"
+  echo "==> 시뮬레이션: world=$world planner=$planner energy=$energy mode=$mode"
   ssh "$REMOTE" "docker exec -u \$(id -u):\$(id -g) $disp drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
       nohup ros2 launch drobot_bringup navigation.launch.py \
-        world:=$world planner:=$planner robot_model:=primitives $gui_args \
+        world:=$world planner:=$planner energy:=$energy robot_model:=primitives $gui_args \
         > /app/sim.log 2>&1 &
       echo \"launch 시작 — 로그: ~/drobot-research/sim.log\"
     '"
@@ -127,7 +137,8 @@ do_run() {
   # 그림은 macOS 에서 benchmark/plot_sim_run.py 로 그린다.
   local world="${2:-medium_open}"
   local planner="${3:-proposed}"
-  local json="sim_${world}.json"
+  local energy="${DROBOT_ENERGY:-default}"
+  local json="sim_${world}_${energy}.json"
 
   stop_sim
   do_sim "" "$world" "$planner" headless

@@ -105,14 +105,24 @@ def launch_setup(context):
     # planner 인자로 baseline과 제안 방법을 바꿔가며 실험할 수 있다.
     #   smac2d   : Nav2 SMAC 2D (지상 전용) — logging_config.yaml 의 Baseline 1
     #   proposed : 에너지 인식 2.5D 하이브리드 A* + ElevationLayer
+    #
+    # energy 인자는 proposed 일 때만 의미가 있다.
+    #   default : 이륙 5.0 + 착륙 3.0 Wh — 전환 고정비가 평지 16 m 상당
+    #   derived : 이륙 0.5 + 착륙 0.3 Wh — 평지 1.6 m 상당
+    # 이착륙 에너지는 INA226 실측 전이라 확정값이 없는데, 이 값이 비행 선택
+    # 여부를 통째로 좌우한다. default 로는 벤치마크 5개 맵 전부에서 모드 전환이
+    # 0회였다. 실측 전까지 한쪽을 고르지 않고 둘 다 돌려 비교한다.
     planner = context.launch_configurations.get('planner', 'smac2d')
+    energy = context.launch_configurations.get('energy', 'default')
     if planner == 'proposed':
-        nav2_params = os.path.join(
-            bringup_pkg, 'config', 'navigation', 'nav2_params_hybrid.yaml')
+        fname = ('nav2_params_hybrid_derived.yaml' if energy == 'derived'
+                 else 'nav2_params_hybrid.yaml')
+        nav2_params = os.path.join(bringup_pkg, 'config', 'navigation', fname)
     else:
         nav2_params = os.path.join(
             bringup_pkg, 'config', 'navigation', 'nav2_params.yaml')
-    print(f"[INFO] planner={planner} -> {os.path.basename(nav2_params)}")
+    print(f"[INFO] planner={planner} energy={energy} "
+          f"-> {os.path.basename(nav2_params)}")
     bt_xml = os.path.join(bringup_pkg, 'config', 'navigation', 'navigate_with_replanning.xml')
     slam_params = os.path.join(bringup_pkg, 'config', 'common', 'slam_params.yaml')
     ekf_params = os.path.join(bringup_pkg, 'config', 'common', 'ekf.yaml')
@@ -396,6 +406,12 @@ def generate_launch_description():
                 'Global planner: smac2d(baseline, 지상 전용) 또는 '
                 'proposed(하이브리드 A* + 2.5D elevation)'
             )
+        ),
+        DeclareLaunchArgument(
+            'energy',
+            default_value='default',
+            description="에너지 파라미터 세트: default | derived "
+                        "(proposed 플래너에서만 의미 있음)",
         ),
         OpaqueFunction(function=launch_setup),
     ])
