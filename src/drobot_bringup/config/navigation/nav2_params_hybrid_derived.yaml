@@ -264,8 +264,13 @@ planner_server:
       publish_mode_switch_plan: true
 
 # =============================================================================
-# 에너지 모델 (HybridAStarPlanner 가 'energy_model' 네임스페이스에서 읽는다)
-# 전체 설명: drobot_hybrid_planner/config/energy_params.yaml
+# 에너지 모델 — "derived" 세트 (이착륙이 싼 쪽)
+# 전체 설명: drobot_hybrid_planner/config/energy_params_derived.yaml
+#
+# default 와 값만 다르다:
+#   이륙 5.0->0.5  착륙 3.0->0.3  고도 2.0->0.4  비행 2.0->0.6 (Wh)
+# 전환 1회 고정비가 평지 16.0 m -> 1.6 m 로 줄어 비행이 실제로 선택된다.
+# default 로는 벤치마크 5개 맵 전부에서 모드 전환이 0회였다.
 # =============================================================================
 energy_model:
   ros__parameters:
@@ -277,7 +282,7 @@ energy_model:
       energy_per_meter: 0.5
       speed: 0.3
     air_mode:
-      energy_per_meter: 2.0
+      energy_per_meter: 0.6
       hover_power: 50.0
       speed: 0.5
     climb_mode:
@@ -285,11 +290,11 @@ energy_model:
       energy_per_height_m: 2.0
       speed_factor: 0.4
     mode_switch:
-      takeoff_energy: 5.0
+      takeoff_energy: 0.5
       takeoff_time: 5.0
-      landing_energy: 3.0
+      landing_energy: 0.3
       landing_time: 4.0
-      energy_per_altitude_meter: 2.0
+      energy_per_altitude_meter: 0.4
     ground_effect:
       enabled: true
       activation_height: 0.5

@@ -12,6 +12,7 @@
 #   ./sync.sh watch        파일이 바뀔 때마다 자동 동기화 (Ctrl+C로 중지)
 #   ./sync.sh sim [world] [planner]   시뮬레이션 실행 (기본: medium_open proposed)
 #   ./sync.sh run <world> [planner]   시뮬레이션 + 목표 전송 + 궤적 기록 (포스터용)
+#       DROBOT_ENERGY=derived ./sync.sh run medium_open   <- 비행이 선택되는 세트
 #   ./sync.sh stop         시뮬레이션 종료
 #
 # 주의: 빌드와 시뮬레이션을 동시에 돌리지 않는다.
@@ -99,6 +100,7 @@ do_sim() {
   local world="${2:-medium_open}"
   local planner="${3:-proposed}"
   local mode="${4:-headless}"
+  local energy="${DROBOT_ENERGY:-default}"   # default | derived (§energy 인자)
 
   local gui_args=""
   local disp="-e DISPLAY=:0"
@@ -108,11 +110,11 @@ do_sim() {
     disp=""
   fi
 
-  echo "==> 시뮬레이션: world=$world planner=$planner mode=$mode"
+  echo "==> 시뮬레이션: world=$world planner=$planner energy=$energy mode=$mode"
   ssh "$REMOTE" "docker exec -u \$(id -u):\$(id -g) $disp drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
       nohup ros2 launch drobot_bringup navigation.launch.py \
-        world:=$world planner:=$planner robot_model:=primitives $gui_args \
+        world:=$world planner:=$planner energy:=$energy robot_model:=primitives $gui_args \
         > /app/sim.log 2>&1 &
       echo \"launch 시작 — 로그: ~/drobot-research/sim.log\"
     '"
@@ -127,7 +129,8 @@ do_run() {
   # 그림은 macOS 에서 benchmark/plot_sim_run.py 로 그린다.
   local world="${2:-medium_open}"
   local planner="${3:-proposed}"
-  local json="sim_${world}.json"
+  local energy="${DROBOT_ENERGY:-default}"
+  local json="sim_${world}_${energy}.json"
 
   stop_sim
   do_sim "" "$world" "$planner" headless
