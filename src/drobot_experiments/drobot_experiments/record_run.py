@@ -75,6 +75,7 @@ class Recorder(Node):
         self.plan_history = 0     # 재계획 횟수 — 몇 번 다시 짰는지
         self.odom = []            # 실제 주행 궤적 [(t, x, y, yaw)]
         self.switches = []        # 이·착륙 지점
+        self.plan_msg = None
         self.t0 = time.time()
         self.result = None
 
@@ -90,6 +91,7 @@ class Recorder(Node):
     def _on_plan(self, msg: Path):
         self.plan = [(p.pose.position.x, p.pose.position.y, p.pose.position.z)
                      for p in msg.poses]
+        self.plan_msg = msg          # --hold 로 재발행할 원본
         self.plan_history += 1
 
     def _on_odom(self, msg: Odometry):
@@ -182,6 +184,8 @@ def main():
     ap.add_argument("--world", required=True, choices=sorted(GOALS))
     ap.add_argument("--out", required=True)
     ap.add_argument("--timeout", type=float, default=180.0)
+    ap.add_argument("--hold", action="store_true",
+                    help="기록 후 계획 경로를 latch 토픽으로 계속 발행 (RViz 캡처용)")
     a = ap.parse_args()
 
     rclpy.init()
@@ -195,6 +199,25 @@ def main():
 
     ok = node.send_goal()
     node.dump(a.out)
+
+    if a.hold:
+        # Nav2 의 /plan 은 latch 가 아니라, 목표가 끝나면 발행이 멈춘다.
+        # 그러면 나중에 RViz 를 켰을 때 아무것도 안 보인다.
+        # 마지막으로 받은 계획을 transient_local 로 다시 내보내 붙잡아둔다.
+        if node.plan_msg is None:
+            node.get_logger().error("붙잡아둘 계획이 없다 (/plan 을 한 번도 못 받음)")
+        else:
+            pub = node.create_publisher(Path, "/viz/plan_latched", LATCHED)
+            pub.publish(node.plan_msg)
+            print(f"\n/viz/plan_latched 로 {len(node.plan_msg.poses)}점 붙잡아뒀다.")
+            print("RViz 에서 Path 디스플레이로 이 토픽을 추가하면 언제 켜도 보인다.")
+            print("(Durability Policy 를 Transient Local 로 둘 것)")
+            print("Ctrl+C 로 종료.")
+            try:
+                rclpy.spin(node)
+            except KeyboardInterrupt:
+                pass
+
     node.destroy_node()
     rclpy.shutdown()
     sys.exit(0 if ok else 1)
