@@ -67,11 +67,19 @@ do_sync() {
 
 stop_sim() {
   # 빌드 전에 시뮬레이션을 반드시 끈다.
+  #
+  # 프로세스 목록이 긴 이유: 예전엔 'nav2' 로 잡으려 했는데 실제 프로세스
+  # 이름은 controller_server, planner_server, bridge_node 라서 하나도 안 죽었다.
+  # 그 결과 실행할 때마다 잔재가 쌓였고, ros_gz_bridge 가 2개 공존하면서
+  # /clock 을 이중 발행해 시간이 앞뒤로 튀었다.
+  #   Detected jump back in time. Clearing TF buffer.
+  # 전 노드에서 이게 반복되면 TF 조회가 계속 실패하고, lifecycle manager 가
+  # bt_navigator / planner_server 를 inactive 로 떨어뜨려 목표가 거부된다.
   # Gazebo(server+gui) + RViz + GPU 렌더링에 colcon 병렬 컴파일이 겹치면
   # 머신이 응답하지 않게 된다 (실제로 SSH 가 끊긴 적이 있다).
   echo "==> 시뮬레이션 종료 (빌드와 동시 실행 금지)"
   ssh "$REMOTE" "docker exec drobot_ros2 bash -c \
-    \"pkill -9 -f 'gz sim|rviz2|nav2|slam_toolbox|ekf_node|ros2 launch|robot_state_pub' 2>/dev/null\" || true"
+    \"pkill -9 -f 'gz sim|ruby.*gz|rviz2|bridge_node|ros_gz|slam_toolbox|ekf_node|ros2 launch|robot_state_pub|controller_server|planner_server|bt_navigator|behavior_server|velocity_smoother|lifecycle_manager|waypoint_follower|smoother_server|map_server|amcl|component_container' 2>/dev/null\" || true"
   sleep 2
 }
 
