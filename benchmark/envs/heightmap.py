@@ -38,6 +38,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from pathlib import Path
+
 import numpy as np
 
 # 높이 상수 — verify_step1b.py 결과에 근거
@@ -312,3 +314,56 @@ ALL_MAPS = {
 
 def build_all(res: float = 0.1) -> dict[str, HeightMap]:
     return {k: f(res) for k, f in ALL_MAPS.items()}
+
+
+# ---------------------------------------------------------------------------
+# 독립연구 맵 (base_map) — 제안서 4.1 의 통제 실험 환경
+#
+# 위 make_* 함수들이 만드는 벤치마크 맵과 목적이 다르다.
+#   벤치마크 맵   긴 벽 여러 개, 우회거리를 손익분기 근처로 맞춰 '선택'을 만든다
+#   base_map     6x11m 방에 단일 장애물, 높이만 독립변수로 바꾼다
+#                (0.05 / 0.3 / 0.5 / 1.0 / 1.8 / 2.5 m — 4단계 분류 경계를 관통)
+#
+# 이 맵들은 Gazebo SDF 와 .npz 로 이중 표현돼 있어 시뮬레이션과 알고리즘 검증이
+# 같은 형상을 쓴다. 여기서는 .npz 를 그대로 읽는다 — 형상을 코드로 다시 만들면
+# SDF 와 어긋날 수 있기 때문이다.
+# ---------------------------------------------------------------------------
+_BASE_MAP_DIR = Path(__file__).resolve().parent / "base_maps"
+
+
+def load_base_map(name: str) -> HeightMap:
+    """base_map_h*.npz 를 HeightMap 으로 읽는다.
+
+    name 은 'base_map_h0.5' 또는 'h0.5' 또는 '0.5' 모두 받는다.
+    """
+    stem = name if name.startswith("base_map_") else f"base_map_h{name.lstrip('h')}"
+    f = _BASE_MAP_DIR / f"{stem}.npz"
+    if not f.exists():
+        avail = sorted(p.stem for p in _BASE_MAP_DIR.glob("*.npz"))
+        raise FileNotFoundError(f"{f} 없음. 사용 가능: {avail}")
+
+    d = np.load(f)
+    # npz 는 (ny, nx) 순서로 저장돼 있다 — HeightMap.grid 와 같은 규약
+    grid = np.asarray(d["height_map"], dtype=float)
+    res = float(d["resolution"])
+    sx, sy = d["start_m"], d["goal_m"]
+    h = float(stem.split("_h")[1])
+    return HeightMap(
+        grid=grid,
+        resolution=res,
+        name=stem,
+        start=(float(sx[0]), float(sx[1])),
+        goal=(float(sy[0]), float(sy[1])),
+        description=f"독립연구 통제 맵 6x11m, 단일 장애물 높이 {h} m",
+    )
+
+
+def base_map_names() -> list[str]:
+    """사용 가능한 base_map 이름을 높이 오름차순으로."""
+    names = [p.stem for p in _BASE_MAP_DIR.glob("base_map_h*.npz")]
+    return sorted(names, key=lambda s: float(s.split("_h")[1]))
+
+
+def build_base_maps() -> dict[str, HeightMap]:
+    """base_map 전부를 높이 오름차순으로."""
+    return {n: load_base_map(n) for n in base_map_names()}
