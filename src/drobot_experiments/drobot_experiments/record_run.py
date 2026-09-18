@@ -33,6 +33,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry, Path
+from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
 
 try:
@@ -49,6 +50,13 @@ GOALS = {
     "medium_corridor": (20.5, 2.0),
     "hard_open":       (22.5, 8.0),
     "hard_corridor":   (22.5, 8.0),
+    # 독립연구 통제 맵 — 전부 같은 시작(2,1)/목표(2,10), 장애물 높이만 다르다
+    "base_map_h0.05":  (2.0, 10.0),
+    "base_map_h0.3":   (2.0, 10.0),
+    "base_map_h0.5":   (2.0, 10.0),
+    "base_map_h1":     (2.0, 10.0),
+    "base_map_h1.8":   (2.0, 10.0),
+    "base_map_h2.5":   (2.0, 10.0),
 }
 
 LATCHED = QoSProfile(depth=1,
@@ -129,8 +137,20 @@ class Recorder(Node):
         while rclpy.ok() and time.time() < deadline:
             rclpy.spin_once(self, timeout_sec=0.1)
             if res_fut.done():
-                self.result = "succeeded"
-                self.get_logger().info("목표 도달")
+                # 완료 != 성공. 예전에 이걸 구분 안 해서 bt_navigator 가
+                # "Goal failed" 를 냈는데도 JSON 에 succeeded 로 적혔다.
+                # 실패한 실행을 성공으로 기록하면 결과 해석이 통째로 틀어진다.
+                st = res_fut.result().status
+                ok = st == GoalStatus.STATUS_SUCCEEDED
+                self.result = {
+                    GoalStatus.STATUS_SUCCEEDED: "succeeded",
+                    GoalStatus.STATUS_ABORTED: "aborted",
+                    GoalStatus.STATUS_CANCELED: "canceled",
+                }.get(st, f"status_{st}")
+                if ok:
+                    self.get_logger().info("목표 도달")
+                else:
+                    self.get_logger().error(f"목표 실패 — {self.result}")
                 return True
         self.result = "timeout"
         self.get_logger().warn(f"{self.timeout}초 안에 도달하지 못했다 "
