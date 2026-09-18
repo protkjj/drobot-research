@@ -1,0 +1,265 @@
+Panels:
+- Class: rviz_common/Displays
+  Name: Displays
+  Property Tree Widget:
+    Expanded: []
+    Splitter Ratio: 0.5
+  Tree Height: 700
+Visualization Manager:
+  Class: ''
+  Name: root
+  Displays:
+  - Class: rviz_default_plugins/Grid
+    Name: Grid
+    Enabled: true
+    Cell Size: 1
+    Plane: XY
+    Plane Cell Count: 24
+    Color: 160; 160; 164
+    Alpha: 0.4
+    Line Style:
+      Line Width: 0.03
+      Value: Lines
+    Normal Cell Count: 0
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Reference Frame: <Fixed Frame>
+  - Class: rviz_default_plugins/Map
+    Name: 지형 (높이 등급)
+    Enabled: true
+    Topic:
+      Value: /viz/map
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Alpha: 0.9
+    Color Scheme: map
+    Draw Behind: true
+    Update Topic:
+      Value: /viz/map_updates
+      Depth: 1
+      Durability Policy: Volatile
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+  - Class: rviz_default_plugins/Path
+    Name: RRT* 시드 0
+    Enabled: true
+    Topic:
+      Value: /viz/path_rrt_seed0
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Color: 255; 150; 150
+    Alpha: 1.0
+    Line Style: Lines
+    Line Width: 0.03
+    Buffer Length: 1
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Pose Style: None
+    Head Diameter: 0.3
+    Head Length: 0.2
+    Shaft Diameter: 0.1
+    Shaft Length: 0.1
+    Radius: 0.03
+  - Class: rviz_default_plugins/Path
+    Name: RRT* 시드 1
+    Enabled: true
+    Topic:
+      Value: /viz/path_rrt_seed1
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Color: 255; 150; 150
+    Alpha: 1.0
+    Line Style: Lines
+    Line Width: 0.03
+    Buffer Length: 1
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Pose Style: None
+    Head Diameter: 0.3
+    Head Length: 0.2
+    Shaft Diameter: 0.1
+    Shaft Length: 0.1
+    Radius: 0.03
+  - Class: rviz_default_plugins/Path
+    Name: RRT* 시드 2
+    Enabled: true
+    Topic:
+      Value: /viz/path_rrt_seed2
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Color: 255; 150; 150
+    Alpha: 1.0
+    Line Style: Lines
+    Line Width: 0.03
+    Buffer Length: 1
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Pose Style: None
+    Head Diameter: 0.3
+    Head Length: 0.2
+    Shaft Diameter: 0.1
+    Shaft Length: 0.1
+    Radius: 0.03
+  - Class: rviz_default_plugins/Path
+    Name: RRT* 시드 3
+    Enabled: true
+    Topic:
+      Value: /viz/path_rrt_seed3
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Color: 255; 150; 150
+    Alpha: 1.0
+    Line Style: Lines
+    Line Width: 0.03
+    Buffer Length: 1
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Pose Style: None
+    Head Diameter: 0.3
+    Head Length: 0.2
+    Shaft Diameter: 0.1
+    Shaft Length: 0.1
+    Radius: 0.03
+  - Class: rviz_default_plugins/Path
+    Name: RRT* 시드 4
+    Enabled: true
+    Topic:
+      Value: /viz/path_rrt_seed4
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Color: 255; 150; 150
+    Alpha: 1.0
+    Line Style: Lines
+    Line Width: 0.03
+    Buffer Length: 1
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Pose Style: None
+    Head Diameter: 0.3
+    Head Length: 0.2
+    Shaft Diameter: 0.1
+    Shaft Length: 0.1
+    Radius: 0.03
+  - Class: rviz_default_plugins/Path
+    Name: RRT* (최선)
+    Enabled: true
+    Topic:
+      Value: /viz/path_rrt
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Color: 227; 73; 72
+    Alpha: 1.0
+    Line Style: Lines
+    Line Width: 0.07
+    Buffer Length: 1
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Pose Style: None
+    Head Diameter: 0.3
+    Head Length: 0.2
+    Shaft Diameter: 0.1
+    Shaft Length: 0.1
+    Radius: 0.03
+  - Class: rviz_default_plugins/Path
+    Name: A*
+    Enabled: true
+    Topic:
+      Value: /viz/path_astar
+      Depth: 1
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Color: 74; 58; 167
+    Alpha: 1.0
+    Line Style: Lines
+    Line Width: 0.09
+    Buffer Length: 1
+    Offset:
+      X: 0
+      Y: 0
+      Z: 0
+    Pose Style: None
+    Head Diameter: 0.3
+    Head Length: 0.2
+    Shaft Diameter: 0.1
+    Shaft Length: 0.1
+    Radius: 0.03
+  - Class: rviz_default_plugins/MarkerArray
+    Name: 시작·목표
+    Enabled: true
+    Topic:
+      Value: /viz/markers
+      Depth: 100
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Filter size: 10
+    Namespaces: {}
+  Enabled: true
+  Global Options:
+    Background Color: 255; 255; 255
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+  - Class: rviz_default_plugins/MoveCamera
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Name: Current View
+      Target Frame: map
+      X: 3.0
+      Y: 5.5
+      Scale: 95
+      Angle: 0
+      Invert Z Axis: false
+      Near Clip Distance: 0.01
+    Saved: null
+Window Geometry:
+  Height: 1000
+  Width: 1200
+  Displays:
+    collapsed: false
+  Hide Left Dock: false
+  Hide Right Dock: true
+  QMainWindow State: ''
