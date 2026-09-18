@@ -23,5 +23,15 @@ worlds:
   hard_open:        {x: 1.5, y: 8.0}    # goal (22.5, 8.0)
   hard_corridor:    {x: 1.5, y: 8.0}    # goal (22.5, 8.0)
 
+  # 독립연구 통제 맵 (src/drobot_hybrid_planner/scripts/test_maps.py 로 생성)
+  # 6x11m 방에 단일 장애물, 높이만 독립변수로 바꾼 6종.
+  # 시작·목표는 .npz 의 start_m / goal_m 과 같다 — 셋이 어긋나면 안 된다.
+  base_map_h0.05:   {x: 2.0, y: 1.0}    # goal (2.0, 10.0)
+  base_map_h0.3:    {x: 2.0, y: 1.0}    # goal (2.0, 10.0)
+  base_map_h0.5:    {x: 2.0, y: 1.0}    # goal (2.0, 10.0)
+  base_map_h1:      {x: 2.0, y: 1.0}    # goal (2.0, 10.0)
+  base_map_h1.8:    {x: 2.0, y: 1.0}    # goal (2.0, 10.0)
+  base_map_h2.5:    {x: 2.0, y: 1.0}    # goal (2.0, 10.0)
+
 # world 목록에 없는 맵은 이 좌표 사용
 default: {x: 0.0, y: 1.5}
