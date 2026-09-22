@@ -26,9 +26,10 @@ ekf_filter_node:
     transform_timeout: 0.0
 
     # ========== 센서 1: 바퀴 오도메트리 ==========
+    # Gazebo OdometryPublisher가 world 절대 pose 발행 → yaw도 사용 (회전 spawn 반영)
     odom0: /odom
     odom0_config: [true,  true,  false,
-                   false, false, false,
+                   false, false, true,
                    true,  true,  false,
                    false, false, true,
                    false, false, false]

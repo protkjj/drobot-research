@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8
 
-RUN << EOF
+RUN <<"EOF"
 	apt-get update
 	apt-get install -y locales
 	locale-gen en_US en_US.UTF-8
@@ -21,7 +21,7 @@ EOF
 WORKDIR /tmp/
 
 # PX4 빌드 의존성 (PX4-Autopilot/Tools/setup/ubuntu.sh 참고)
-RUN << EOF
+RUN <<"EOF"
 	apt-get update
 	apt-get -y --quiet --no-install-recommends install \
 		ca-certificates gnupg gosu software-properties-common sudo wget curl
@@ -47,7 +47,7 @@ COPY requirements.txt /tmp/requirements.txt
 RUN python3 -m pip install --break-system-packages -r /tmp/requirements.txt
 
 # Gazebo Harmonic
-RUN << EOF
+RUN <<"EOF"
 	curl https://packages.osrfoundation.org/gazebo.gpg \
 		--output /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg
 	echo "deb [arch=amd64 signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] \
@@ -68,7 +68,7 @@ RUN << EOF
 EOF
 
 # Micro-XRCE-DDS Agent (PX4 <-> ROS2 통신 브릿지)
-RUN << EOF
+RUN <<"EOF"
 	git clone -b v2.4.2 https://github.com/eProsima/Micro-XRCE-DDS-Agent.git
 	sed -i '98s|2.12|2.13|' Micro-XRCE-DDS-Agent/CMakeLists.txt
 	sed -i '99s|2.12.x|2.13.3|' Micro-XRCE-DDS-Agent/CMakeLists.txt
@@ -84,7 +84,7 @@ COPY ./entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 # 편의 alias
-RUN << EOF
+RUN <<"EOF"
 cat << 'BASHRC' >> /etc/skel/.bashrc
 
 # PX4 SITL 실행 (drobot 커스텀 모델은 추후 설정)

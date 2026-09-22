@@ -58,14 +58,24 @@ src/
 ### 최초 설정
 
 ```bash
-# 레포 클론 (submodule 포함)
+# 1. 레포 클론 (submodule 포함)
 git clone --recursive https://github.com/<owner>/drobot-research.git
 cd drobot-research
 
-# Docker 이미지 빌드
+# 2. Git LFS 파일 받기 (mesh STL/DAE, world SDF, model texture 등 680여 개)
+git lfs install   # (시스템에 최초 1회만)
+git -c lfs.url=https://github.com/protkjj/drobot.git/info/lfs lfs pull
+
+# 3. Docker 이미지 빌드
 cd docker
 docker compose build
 ```
+
+> ⚠️ **LFS 주의**: 현재 `drobot-research` 자체에는 LFS 오브젝트가 push되지 않은 상태라
+> 위 2번 명령에서 upstream `protkjj/drobot`의 LFS 서버를 일시적으로 참조합니다
+> (`-c lfs.url=...`는 config를 영구 변경하지 않음).
+> LFS 파일을 받지 않으면 Gazebo가 world 파일을 파싱하지 못해 launch가 실패합니다
+> (`Error parsing XML ... ErrorID=8 Line number=1` — pointer 파일을 그대로 파싱한 결과).
 
 ### 컨테이너 실행
 
@@ -133,14 +143,48 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+## 테스트 맵
+
+연구 검증용 통제 환경. `test_maps.py` 한 스크립트가 RRT\* 알고리즘 입력(`.npz`)과 Gazebo 월드(`.sdf`)를 **동일 기하학으로 동시 생성**한다.
+
+**설계**: 6 × 10 m 맵에 직육면체 장애물 1개를 **왼쪽으로 치우치게** 배치 (중심 (2, 5), 4 × 3 m, 높이 가변). start = (2, 0), goal = (2, 10) 직선이 박스를 정면 관통하도록 설계 — 어떤 플래너든 "비행 or 우회" 결정에 직면. 비대칭 배치로 우회 거리가 늘어나 비행과의 에너지 비교가 의미있는 영역으로 들어옴.
+
+장애물 높이만 CLI로 변경 (`--height`) → Rover (≤0.15 m) / Flyover (0.15–2 m) / Impass (>2 m) regime sweep.
+
+### 생성
+
+```bash
+# 기본 (높이 0.5 m → base_map_h0.5)
+python3 src/drobot_hybrid_planner/scripts/test_maps.py
+
+# 높이 sweep
+python3 src/drobot_hybrid_planner/scripts/test_maps.py --height 0.3
+python3 src/drobot_hybrid_planner/scripts/test_maps.py --height 1.0
+
+# 옵션
+python3 src/drobot_hybrid_planner/scripts/test_maps.py --help
+```
+
+| 출력 | 위치 | 용도 |
+|------|------|------|
+| `<name>.npz` | `src/drobot_hybrid_planner/scripts/maps/` | height / class / cost map + start/goal — RRT\* 입력 |
+| `<name>.png` | `src/drobot_hybrid_planner/scripts/maps/` | 디버깅용 2-panel 시각화 |
+| `<name>.sdf` | `src/drobot_description/worlds/` | Gazebo 월드 — launch가 자동 탐지 |
+
+높이 임계값과 셀 해상도는 `src/drobot_costmap_2_5d/config/elevation_params.yaml` 에서 로드 (단일 진실 출처).
+
 ## 실행
 
 ```bash
-# 시뮬레이션 + SLAM + Nav2
-ros2 launch drobot_bringup navigation.launch.py
+# 1) 테스트 맵 생성 (위 '테스트 맵' 참고)
+python3 src/drobot_hybrid_planner/scripts/test_maps.py --height 0.5
 
-# 특정 월드 지정
-ros2 launch drobot_bringup navigation.launch.py world:=hospital_original
+# 2) 빌드
+colcon build --packages-select drobot_description drobot_bringup
+source install/setup.bash
+
+# 3) 시뮬레이션 + SLAM + Nav2 — 로봇은 맵 start (2, 0)에 spawn
+ros2 launch drobot_bringup navigation.launch.py world:=base_map_h0.5
 
 # 키보드 조종
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
