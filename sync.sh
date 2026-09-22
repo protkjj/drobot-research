@@ -65,6 +65,28 @@ do_sync() {
   rsync "${RSYNC_OPTS[@]}" "$LOCAL_DIR" "$REMOTE:$REMOTE_DIR"
 }
 
+ensure_container() {
+  # 컨테이너가 안 떠 있으면 띄운다.
+  #
+  # 호스트를 재부팅하면 drobot_ros2 가 Exited 로 남고 자동 시작되지 않는다.
+  # 그 상태로 sync.sh sim 을 돌리면 docker exec 가
+  #   Error response from daemon: container ... is not running
+  # 만 뱉고 끝나서 원인을 알기 어렵다. 미리 확인해 띄운다.
+  #
+  # compose 가 UID/GID/DISPLAY 를 참조하므로 같이 넘긴다.
+  # (UID 는 bash 에서 readonly 라 export 하지 않고 compose 에 직접 준다)
+  if ssh "$REMOTE" "docker ps --format '{{.Names}}' | grep -qx drobot_ros2"; then
+    return 0
+  fi
+  echo "==> 컨테이너가 꺼져 있다 — 기동한다"
+  ssh "$REMOTE" "cd $REMOTE_DIR/docker && \
+    UID=\$(id -u) GID=\$(id -g) DISPLAY=\${DISPLAY:-:0} \
+    docker compose up -d ros2 2>&1 | tail -2"
+  sleep 3
+  ssh "$REMOTE" "docker ps --format '{{.Names}}\t{{.Status}}' | grep drobot_ros2" \
+    || { echo "!! 컨테이너 기동 실패" >&2; return 1; }
+}
+
 stop_sim() {
   # 빌드 전에 시뮬레이션을 반드시 끈다.
   #
@@ -84,6 +106,7 @@ stop_sim() {
 }
 
 do_build() {
+  ensure_container || return 1
   stop_sim
   echo "==> 원격 빌드 ($PKGS)"
   # 병렬 작업 수를 제한한다. 랩실 데스크탑은 공용이라
@@ -97,6 +120,7 @@ do_build() {
 }
 
 do_test() {
+  ensure_container || return 1
   echo "==> 원격 테스트 (Python<->C++ 동등성)"
   ssh -t "$REMOTE" "docker exec -u \$(id -u):\$(id -g) drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
@@ -116,6 +140,7 @@ do_sim() {
   local world="${2:-medium_open}"
   local planner="${3:-proposed}"
   local mode="${4:-headless}"
+  ensure_container || return 1
   local energy="${DROBOT_ENERGY:-default}"   # default | derived (§energy 인자)
 
   local gui_args=""
@@ -148,6 +173,7 @@ do_run() {
   local energy="${DROBOT_ENERGY:-default}"
   local json="sim_${world}_${energy}.json"
 
+  ensure_container || return 1
   stop_sim
   do_sim "" "$world" "$planner" headless
 
@@ -181,7 +207,7 @@ case "${1:-sync}" in
     ;;
   sim)
     # 빌드 없이 시뮬레이션만 (이미 빌드돼 있을 때)
-    stop_sim && do_sim "$@"
+    ensure_container && stop_sim && do_sim "$@"
     ;;
   run)
     do_sync && do_run "$@"
