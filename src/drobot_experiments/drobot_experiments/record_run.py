@@ -12,6 +12,7 @@
     /plan                 플래너가 낸 계획 경로 (nav_msgs/Path)
     /mode_switch_points   이·착륙 지점 (drobot_msgs/ModeSwitchPlan)  ← 우리 기여
     /odom                 실제 주행 궤적 (nav_msgs/Odometry)
+    /cmd_vel              컨트롤러가 낸 속도 명령 (geometry_msgs/Twist)
 
 이 파일은 colcon 설치 없이 python3 로 바로 실행된다 — 빌드가 필요 없다.
 
@@ -31,7 +32,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry, Path
 from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
@@ -75,12 +76,14 @@ class Recorder(Node):
         self.plan_history = 0     # 재계획 횟수 — 몇 번 다시 짰는지
         self.odom = []            # 실제 주행 궤적 [(t, x, y, yaw)]
         self.switches = []        # 이·착륙 지점
+        self.cmd = []             # 컨트롤러 명령 [(t, vx, wz)]
         self.plan_msg = None
         self.t0 = time.time()
         self.result = None
 
         self.create_subscription(Path, "/plan", self._on_plan, 10)
         self.create_subscription(Odometry, "/odom", self._on_odom, 20)
+        self.create_subscription(Twist, "/cmd_vel", self._on_cmd, 20)
         if ModeSwitchPlan is not None:
             self.create_subscription(ModeSwitchPlan, "/mode_switch_points",
                                      self._on_switch, LATCHED)
@@ -101,6 +104,17 @@ class Recorder(Node):
                          1 - 2 * (q.y ** 2 + q.z ** 2))
         self.odom.append((round(time.time() - self.t0, 3),
                           round(p.x, 4), round(p.y, 4), round(yaw, 4)))
+
+    def _on_cmd(self, msg: Twist):
+        """컨트롤러가 실제로 뭘 시켰는지 남긴다.
+
+        왜 필요한가: 로봇이 안 가는 이유가 "명령을 안 줘서"인지
+        "명령은 줬는데 안 움직여서"인지, odom 만으로는 안 갈린다.
+        base_map 주행에서 로봇이 반지름 0.12 m 원을 1.9 바퀴 돈 적이 있는데,
+        그게 제자리 회전 명령인지 곡선 주행 명령인지 구분하려면 이게 있어야 한다.
+        """
+        self.cmd.append((round(time.time() - self.t0, 3),
+                         round(msg.linear.x, 4), round(msg.angular.z, 4)))
 
     def _on_switch(self, msg):
         self.switches = [{
@@ -167,6 +181,7 @@ class Recorder(Node):
             "n_replans": self.plan_history,
             "plan": self.plan,
             "odom": self.odom,
+            "cmd_vel": self.cmd,
             "mode_switches": self.switches,
             "duration_s": round(time.time() - self.t0, 2),
         }
@@ -175,6 +190,13 @@ class Recorder(Node):
         print(f"\n저장 {path}")
         print(f"  계획 경로 {len(self.plan)}점 · 재계획 {self.plan_history}회")
         print(f"  주행 궤적 {len(self.odom)}점 · {data['duration_s']}초")
+        if self.cmd:
+            # 전진 없이 회전만 시킨 비율. 높으면 컨트롤러가 제자리에서 맴돈 것이다.
+            spin = sum(1 for _, vx, wz in self.cmd if abs(vx) < 0.01 and abs(wz) > 0.05)
+            still = sum(1 for _, vx, wz in self.cmd if abs(vx) < 0.01 and abs(wz) <= 0.05)
+            vmax = max(abs(v) for _, v, _ in self.cmd)
+            print(f"  속도 명령 {len(self.cmd)}개 · 최대 전진 {vmax:.3f} m/s · "
+                  f"회전만 {100*spin/len(self.cmd):.0f}% · 정지 {100*still/len(self.cmd):.0f}%")
         print(f"  모드 전환 {len(self.switches)}회  <- 0 이면 비행을 안 썼다는 뜻")
         print(f"  결과 {self.result}")
 
