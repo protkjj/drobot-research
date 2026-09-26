@@ -22,6 +22,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'mode_manager = drobot_mode_manager.mode_manager:main',
         ],
     },
 )

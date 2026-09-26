@@ -22,6 +22,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'record_run = drobot_experiments.record_run:main',
+            'publish_paths = drobot_experiments.publish_paths:main',
         ],
     },
 )

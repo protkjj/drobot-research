@@ -20,3 +20,20 @@ mode_manager:
 
     # 천장 여유 최소값 — 로봇 상단 기준
     min_ceiling_clearance: 0.5  # meters
+
+    # ===== 전환 지점 판정 =====
+    # 전환점에 이만큼 가까워지면 "도달"로 본다.
+    # 너무 작으면 컨트롤러가 지나쳐버려 전환을 놓치고,
+    # 너무 크면 엉뚱한 곳에서 이륙한다. 주행 해상도(0.1 m)의 3~4배로 잡았다.
+    arrival_radius: 0.35  # meters
+
+    # 이착륙 실행 백엔드
+    #   sim — PX4 없이 시뮬에서 전환 (현재. 시뮬에 멀티콥터 물리가 없다)
+    #   px4 — Phase 2 실물 오프보드
+    backend: "sim"
+
+    # ===== 좌표 프레임 =====
+    # 규약(인터페이스 규약 ①)은 base_link 지만 저장소 실물은 base_footprint 다.
+    # 규약 정렬은 A 트랙 몫이라 여기서는 파라미터로 받아 맞춰 쓴다.
+    base_frame: "base_footprint"
+    map_frame: "map"
