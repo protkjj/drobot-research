@@ -471,12 +471,11 @@ void ElevationLayer::updateCosts(
       // 자체 costmap 에도 기록해 둔다 (디버그/시각화용)
       costmap_[cellIndex(mx, my)] = c;
 
-      // master 에는 더 큰 값만 덮어쓴다.
-      // 다른 레이어(static/obstacle)가 이미 더 위험하다고 판단했으면 존중한다.
-      const unsigned char old = master_grid.getCost(mx, my);
-      if (old == NO_INFORMATION || c > old) {
-        master_grid.setCost(mx, my, c);
-      }
+      // elevation 이 관측한 셀은 이 레이어가 지형 판정의 최종 권한을 갖는다.
+      // obstacle_layer(2D LiDAR)가 flyover 박스를 254 로 찍어도, 여기서
+      // 200(flyover) 로 재분류해 덮어쓴다. 미관측 셀은 위에서 continue 하므로
+      // 카메라가 못 본 동적 장애물의 obstacle_layer 판정은 그대로 유지된다.
+      master_grid.setCost(mx, my, c);
     }
   }
 

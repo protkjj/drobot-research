@@ -114,7 +114,7 @@ local_costmap:
       # 직사각형 footprint (robot_radius 대신)
       # 로봇 실제: 0.30 x 0.40m → 안전마진 포함 0.40 x 0.40m
       footprint: "[[0.20, 0.20], [0.20, -0.20], [-0.20, -0.20], [-0.20, 0.20]]"
-      plugins: ["voxel_layer", "inflation_layer"]
+      plugins: ["voxel_layer", "elevation_layer", "inflation_layer"]
 
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
@@ -137,6 +137,35 @@ local_costmap:
           obstacle_max_range: 2.5
           obstacle_min_range: 0.3
 
+      # 2.5D elevation (local) — MPPI 가 지형 cost(200=flyover 등)를 읽도록 global 과 동일 배선.
+      # 파라미터는 global 과 동일하게 유지 (SSOT 기준: elevation_params.yaml).
+      elevation_layer:
+        plugin: "drobot_costmap_2_5d::ElevationLayer"
+        enabled: true
+        height_thresholds:
+          rover_traversable_max: 0.15
+          fly_over_max: 1.2
+        ceiling_height: 2.5
+        robot_flight_height: 0.8
+        min_ceiling_clearance: 0.5
+        traversability:
+          max_slope_angle: 15.0
+          max_roughness: 0.03
+          max_step_height: 0.05
+        cost_values:
+          free: 0
+          rover_traversable: 100
+          fly_over: 200
+          impassable: 254
+        use_pointcloud: true
+        use_laserscan: true
+        depth_topic: "/camera/depth/points"
+        scan_topic: "/scan"
+        min_obstacle_height: -0.5
+        max_obstacle_height: 3.0
+        max_sensor_range: 4.0
+        publish_elevation_grid: false  # local 은 디버그 발행 생략 (global 에서 확인)
+        clear_on_reset: true
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0      # 높을수록 lethal 근처만 고비용
