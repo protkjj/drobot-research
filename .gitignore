@@ -23,3 +23,5 @@ CLAUDE.md
 
 # 에디터 개인 설정
 .vscode/
+frames_*.pdf
+frames_*.gv
