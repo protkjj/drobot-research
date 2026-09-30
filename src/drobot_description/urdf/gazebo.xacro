@@ -102,10 +102,10 @@
   </gazebo>
 
   <!-- ========== 2D LIDAR ========== -->
-  <gazebo reference="lidar">
+  <gazebo reference="base_scan">
     <sensor name="lidar" type="gpu_lidar">
       <topic>/scan</topic>
-      <gz_frame_id>lidar</gz_frame_id>
+      <gz_frame_id>base_scan</gz_frame_id>
       <update_rate>10</update_rate>
       <always_on>true</always_on>
       <visualize>false</visualize>
@@ -150,8 +150,8 @@
   </gazebo>
 
   <!-- ========== CAMERA ========== -->
-  <gazebo reference="camera">
-    <sensor name="camera" type="rgbd"> <gz_frame_id>camera</gz_frame_id>
+  <gazebo reference="camera_link">
+    <sensor name="camera" type="rgbd"> <gz_frame_id>camera_link</gz_frame_id>
       <update_rate>15</update_rate>
       <always_on>true</always_on>
       <visualize>true</visualize>

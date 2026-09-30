@@ -67,7 +67,7 @@
   </link>
 
   <!-- ==================== LIDAR ==================== -->
-  <link name="lidar">
+  <link name="base_scan">
     <inertial>
       <origin xyz="-0.0215847721606996 0.00397566854868606 -0.00218033584701988" rpy="0 0 0"/>
       <mass value="0.00105539669078503"/>
@@ -88,11 +88,11 @@
   <joint name="lidar_joint" type="fixed">
     <origin xyz="0.010101 -0.027788 0.30154" rpy="3.1416 0 3.1416"/>
     <parent link="base_link"/>
-    <child link="lidar"/>
+    <child link="base_scan"/>
   </joint>
 
   <!-- ==================== CAMERA ==================== -->
-  <link name="camera">
+  <link name="camera_link">
     <inertial>
       <origin xyz="-0.0215847721606996 0.00397566854868603 -0.00218033584701988" rpy="3.1416 0 3.1416"/>
       <mass value="0.00105539669078502"/>
@@ -113,7 +113,7 @@
   <joint name="camera_joint" type="fixed">
     <origin xyz="0.010101 -0.027788 0.36" rpy="0 0 0"/>
     <parent link="base_link"/>
-    <child link="camera"/>
+    <child link="camera_link"/>
   </joint>
 
   <!-- ==================== IMU (virtual, no mesh) ==================== -->
