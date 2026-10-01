@@ -305,51 +305,52 @@ planner_server:
       publish_mode_switch_plan: true
 
 # =============================================================================
-# 에너지 모델 (HybridAStarPlanner 가 'energy_model' 네임스페이스에서 읽는다)
+# 에너지 모델 — planner_server 의 파라미터다 (HybridAStarPlanner 가 energy_model.* 로 읽는다)
+# 최상위 키로 두면 rcl 이 'energy_model' 이라는 노드의 설정으로 읽고 전부 버린다
+# (test_nav2_params_file.cpp). 아래 블록은 planner_server: ros__parameters: 안에 있다.
 # 전체 설명: drobot_hybrid_planner/config/energy_params.yaml
 # =============================================================================
-energy_model:
-  ros__parameters:
-    cost_weights:
-      w_energy: 0.5
-      w_switch: 0.2
-      w_time: 0.3
-    ground_mode:
-      energy_per_meter: 0.5
-      speed: 0.3
-    air_mode:
-      energy_per_meter: 2.0
-      hover_power: 50.0
-      speed: 0.5
-    climb_mode:
-      max_height: 0.7
-      energy_per_height_m: 2.0
-      speed_factor: 0.4
-    mode_switch:
-      takeoff_energy: 5.0
-      takeoff_time: 5.0
-      landing_energy: 3.0
-      landing_time: 4.0
-      energy_per_altitude_meter: 2.0
-    ground_effect:
-      enabled: true
-      activation_height: 0.5
-      power_multiplier: 1.15
-    vertical_motion:
-      climb_energy_per_meter: 2.0
-      descent_energy_ratio: 0.3
-      climb_speed: 0.5
-      descent_speed: 0.5
-    apply_altitude_cost_to_landing: true
-    robot:
-      height: 0.25
-      ceiling_margin: 0.5
-    min_flight_clearance: 0.2
-    max_climb_angle_deg: 45.0
-    idle_power:
-      enabled: false
-      ground_w: 0.0
-      air_w: 0.0
+    energy_model:
+      cost_weights:
+        w_energy: 0.5
+        w_switch: 0.2
+        w_time: 0.3
+      ground_mode:
+        energy_per_meter: 0.5
+        speed: 0.3
+      air_mode:
+        energy_per_meter: 2.0
+        hover_power: 50.0
+        speed: 0.5
+      climb_mode:
+        max_height: 0.7
+        energy_per_height_m: 2.0
+        speed_factor: 0.4
+      mode_switch:
+        takeoff_energy: 5.0
+        takeoff_time: 5.0
+        landing_energy: 3.0
+        landing_time: 4.0
+        energy_per_altitude_meter: 2.0
+      ground_effect:
+        enabled: true
+        activation_height: 0.5
+        power_multiplier: 1.15
+      vertical_motion:
+        climb_energy_per_meter: 2.0
+        descent_energy_ratio: 0.3
+        climb_speed: 0.5
+        descent_speed: 0.5
+      apply_altitude_cost_to_landing: true
+      robot:
+        height: 0.25
+        ceiling_margin: 0.5
+      min_flight_clearance: 0.2
+      max_climb_angle_deg: 45.0
+      idle_power:
+        enabled: false
+        ground_w: 0.0
+        air_w: 0.0
 
 # =============================================================================
 # Behavior Server (복구 동작)
