@@ -176,8 +176,16 @@ class ModeManager(Node):
         srv = f"/world/{self.world}/set_pose"
         self.pose_cli = None
         if SetEntityPose is not None:
-            self.pose_cli = self.create_client(SetEntityPose, srv)
-            if not self.pose_cli.wait_for_service(timeout_sec=3.0):
+            try:
+                self.pose_cli = self.create_client(SetEntityPose, srv)
+                if not self.pose_cli.wait_for_service(timeout_sec=3.0):
+                    self.pose_cli = None
+            except Exception as e:
+                # ROS 이름 규칙은 영숫자와 '_' 만 허용한다. 월드 이름에 '.' 이
+                # 들어가면(base_map_h0.5) 서비스 경로를 만들 수 없다.
+                # Gazebo 쪽은 '.' 을 허용하므로 CLI 로는 부를 수 있다.
+                self.get_logger().warn(
+                    f"서비스 이름 {srv} 를 쓸 수 없다 ({type(e).__name__}) — gz CLI 로 간다")
                 self.pose_cli = None
 
         if self.pose_cli is not None:

@@ -173,6 +173,19 @@ def test_cli_sender_builds_command(monkeypatch=None):
     assert "orientation" in req
 
 
+def test_world_name_with_dot_is_not_a_ros_name():
+    """월드 이름에 '.' 이 들어가면 ROS 서비스 경로로 못 쓴다.
+
+    base_map_h0.5 가 실제로 그렇다. mode_manager 는 이 경우 gz CLI 로
+    떨어져야 하고, 그 분기를 빼먹어 한 번 죽은 적이 있다.
+    여기서는 '왜 CLI 가 필요한가' 를 규칙으로 못 박아둔다.
+    """
+    import re
+    ros_ok = re.compile(r"^[A-Za-z_~{][A-Za-z0-9_~{}/]*$")
+    assert not ros_ok.match("/world/base_map_h0.5/set_pose".lstrip("/"))
+    assert ros_ok.match("/world/base_map_h05/set_pose".lstrip("/"))
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     fail = 0
