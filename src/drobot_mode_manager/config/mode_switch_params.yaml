@@ -64,3 +64,8 @@ mode_manager:
     takeoff_time: 5.0           # s  = energy_params mode_switch.takeoff_time
     landing_time: 4.0           # s  = energy_params mode_switch.landing_time
     flight_speed: 0.5           # m/s = energy_params air_mode.speed
+
+    # 비행 중 지상 컨트롤러 묶기 (목표를 취소하지 않고 속도만 제한)
+    # ⚠ 0 은 쓰면 안 된다 — Nav2 에서 speed_limit 0.0 은 '제한 해제' 다.
+    flight_speed_limit_pct: 1.0   # % of max
+    speed_limit_topic: "/speed_limit"

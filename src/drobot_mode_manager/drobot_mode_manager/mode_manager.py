@@ -41,6 +41,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.time import Time
 
+from nav2_msgs.msg import SpeedLimit
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
@@ -108,6 +109,10 @@ class ModeManager(Node):
         self.takeoff_time = float(p("takeoff_time", 5.0).value)
         self.landing_time = float(p("landing_time", 4.0).value)
         self.flight_speed = float(p("flight_speed", 0.5).value)
+        # 비행 중 지상 컨트롤러를 묶어두는 비율 (%). 0 은 쓸 수 없다 —
+        # Nav2 에서 speed_limit 0.0 은 NO_SPEED_LIMIT, 즉 '제한 해제' 다.
+        self.flight_speed_pct = float(p("flight_speed_limit_pct", 1.0).value)
+        self.speed_topic = p("speed_limit_topic", "/speed_limit").value
 
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf, self)
@@ -119,6 +124,9 @@ class ModeManager(Node):
         self.create_subscription(BatteryState, "/battery_state",
                                  self._on_battery, 10)
         self.state_pub = self.create_publisher(String, "/mode_state", 10)
+        # 비행 중 지상 컨트롤러 묶기. 목표를 취소하는 대신 속도 상한을 내린다 —
+        # 취소하면 목표를 보낸 쪽(record_run)이 'canceled' 로 받아 실험이 끊긴다.
+        self.speed_pub = self.create_publisher(SpeedLimit, self.speed_topic, 10)
 
         t = self.tracker
         self.get_logger().info(
@@ -316,6 +324,29 @@ class ModeManager(Node):
             after = self.tracker.complete(t)
             self.get_logger().info(f"  → {after}")
 
+    def _limit_ground_speed(self, pct: float | None):
+        """지상 컨트롤러 속도 상한을 건다. None 이면 해제.
+
+        왜 목표 취소가 아닌가
+            비행 중에도 controller_server 는 /cmd_vel 을 계속 낸다. 가만히
+            두면 DiffDrive 가 로봇을 이륙점에서 밀어낸다. 그렇다고 목표를
+            취소하면 목표를 보낸 쪽(record_run)이 canceled 를 받고 실험이
+            거기서 끝나버린다. 속도 상한은 목표를 살려둔 채 로봇만 묶는다.
+
+        왜 0 이 아니라 1% 인가
+            Nav2 에서 speed_limit 0.0 은 NO_SPEED_LIMIT — '제한 없음' 이다
+            (nav2_costmap_2d::NO_SPEED_LIMIT). 0 을 보내면 묶이는 게 아니라
+            풀린다. 그래서 0 에 가까운 양수를 쓴다.
+        """
+        msg = SpeedLimit()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.percentage = True
+        msg.speed_limit = 0.0 if pct is None else float(pct)
+        self.speed_pub.publish(msg)
+        self.get_logger().info(
+            "  지상 속도 제한 해제" if pct is None
+            else f"  지상 속도 {pct:.1f}% 로 제한 (비행 중)")
+
     # ---------- 비행 실행 ----------
     def _start_flight(self, up: SwitchPoint):
         """이륙점에서 짝 착륙점까지를 한 번에 수행한다.
@@ -339,6 +370,7 @@ class ModeManager(Node):
             speed=self.flight_speed)
         self.flight_seg = seg
         self.flight_result = None
+        self._limit_ground_speed(self.flight_speed_pct)
 
         # 백엔드는 구간 길이만큼(여기선 약 15초) 잠든다.
         # 콜백에서 그냥 부르면 노드 전체가 멈추므로 스레드로 뺀다.
@@ -362,6 +394,10 @@ class ModeManager(Node):
         ok, seg = self.flight_result, self.flight_seg
         self.flight_seg = None
         self.flight_result = None
+
+        # 성공이든 실패든 제한은 반드시 푼다. 안 풀면 로봇이 영영 1% 속도로
+        # 기어다니고, 원인을 찾기 어려운 상태가 된다.
+        self._limit_ground_speed(None)
 
         if not ok:
             # 실패를 성공으로 넘기지 않는다. 전환점을 그대로 두면
