@@ -85,7 +85,7 @@ bool LayerTerrainSource::collides(unsigned int mx, unsigned int my) const
 {
   const unsigned char c = master_->getCost(mx, my);
   return c == nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE ||
-    c == nav2_costmap_2d::LETHAL_OBSTACLE;
+         c == nav2_costmap_2d::LETHAL_OBSTACLE;
 }
 
 bool LayerTerrainSource::observed(unsigned int mx, unsigned int my) const
