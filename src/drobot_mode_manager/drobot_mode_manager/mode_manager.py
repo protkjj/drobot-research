@@ -470,8 +470,9 @@ class ModeManager(Node):
                 "  위치추정을 다시 잡지 못했다 — robot_localization 서비스 없음. "
                 "TF 가 옛 자리를 가리켜 Nav2 가 헤맬 수 있다")
             return
-        if not self.ekf_cli.wait_for_service(timeout_sec=2.0):
-            self.get_logger().warn(f"  {self.ekf_srv} 응답 없음 — 위치추정 재설정 생략")
+        if not self.ekf_cli.service_is_ready():
+            self.get_logger().warn(
+                f"  {self.ekf_srv} 가 아직 안 떴다 — 위치추정 재설정 생략")
             return
 
         req = SetPose.Request()
@@ -488,14 +489,21 @@ class ModeManager(Node):
             msg.pose.covariance[i] = v
         req.pose = msg
 
+        # 응답을 여기서 기다리면 안 된다.
+        # 이 함수는 메인 스레드 타이머에서 불리는데, 거기서 막으면
+        # 응답을 처리할 executor 자체가 멈춰 영원히 안 온다.
+        # (처음에 그렇게 짜서 "응답 없음" 이 떴다. 서비스는 멀쩡했다.)
         fut = self.ekf_cli.call_async(req)
-        t0 = time.time()
-        while not fut.done() and time.time() - t0 < 2.0:
-            time.sleep(0.01)
-        if fut.done():
-            self.get_logger().info(f"  위치추정 재설정 → ({x:.2f}, {y:.2f})")
-        else:
-            self.get_logger().warn("  위치추정 재설정 응답 없음")
+        fut.add_done_callback(
+            lambda f, px=x, py=y: self._on_reset_done(f, px, py))
+        self.get_logger().info(f"  위치추정 재설정 요청 → ({x:.2f}, {y:.2f})")
+
+    def _on_reset_done(self, fut, x: float, y: float):
+        try:
+            fut.result()
+            self.get_logger().info(f"  위치추정 재설정 완료 ({x:.2f}, {y:.2f})")
+        except Exception as e:
+            self.get_logger().warn(f"  위치추정 재설정 실패 — {type(e).__name__}: {e}")
 
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9
