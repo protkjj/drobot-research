@@ -474,6 +474,95 @@ TEST_F(LayerTerrainTest, UnobservedIsDrivableButNotLandable)
 }
 
 
+// ---------------------------------------------------------------------------
+// 비행 한 구간 거리 제약 (max_flight_segment, 인터페이스 규약 SSOT 5.0 m)
+// ---------------------------------------------------------------------------
+// 제약이 없으면 derived 에너지 세트에서 출발점부터 목표까지 9 m 를 한 번에
+// 날았다 (mode_manager 가 '1회 비행거리 초과' 경고). 아래가 그 회귀를 막는다.
+TEST_F(StateSpaceTest, FlightSegmentLimitBlocksLongCrossing)
+{
+  // 폭 1.0 m (x 10~29) fly_over 띠. 건너려면 x=9 에서 떠 x=30 에 내려야 한다:
+  // 21 칸 x 0.05 m = 1.05 m 비행.
+  nav2_costmap_2d::Costmap2D band(kNx, kNy, kRes, 0.0, 0.0, kCostFree);
+  for (unsigned int my = 0; my < kNy; ++my) {
+    for (unsigned int mx = 10; mx < 30; ++mx) {
+      band.setCost(mx, my, kCostFlyOver);
+    }
+  }
+  auto terrain = std::make_shared<CostmapTerrainSource>(&band, CostmapTerrainSource::Config{});
+
+  const auto crosses = [&](double max_flight) {
+      ProblemSpec::Params p;
+      p.modal = Modal::Hybrid;
+      p.max_flight_distance = max_flight;
+      const ProblemSpec spec(&band, terrain, &model_, p);
+      const auto seen = reachable(spec, State{1, kMidY, GROUND, 0});
+      return std::any_of(
+        seen.begin(), seen.end(), [](const auto & k) {
+          return std::get<0>(k) >= 30 && std::get<2>(k) == GROUND;
+        });
+    };
+  EXPECT_FALSE(crosses(0.5)) << "0.5 m 제한으로 1.05 m 띠를 건너면 안 된다";
+  EXPECT_TRUE(crosses(1.2)) << "1.2 m 면 건널 수 있어야 한다";
+  EXPECT_TRUE(crosses(0.0)) << "0 이하는 제한 없음";
+}
+
+TEST_F(StateSpaceTest, FlightLimitUsesExactDistanceNotBins)
+{
+  ProblemSpec::Params p;
+  p.modal = Modal::Hybrid;
+  p.max_flight_distance = 0.5;
+  p.flight_distance_bin = 0.25;
+  const ProblemSpec spec(costmap_.get(), terrain_, &model_, p);
+  ASSERT_EQ(spec.numFlightBins(), 2u);
+
+  // 0.44 m 날아온 상태 — 직선 한 칸(0.05)은 되고 대각선(0.0707)은 넘는다
+  State s{2, kMidY, AIR, 0, 1, 0.44f};
+  std::vector<ProblemSpec::Edge> out;
+  spec.neighbors(s, out);
+  bool straight = false, diagonal = false;
+  for (const auto & e : out) {
+    if (e.next.mode != AIR) {continue;}
+    EXPECT_LE(e.next.flown, 0.5f + 1e-5f);
+    const bool diag = e.next.mx != s.mx && e.next.my != s.my;
+    (diag ? diagonal : straight) = true;
+  }
+  EXPECT_TRUE(straight);
+  EXPECT_FALSE(diagonal);
+
+  // 구간이 다르면 다른 상태다
+  State a{2, kMidY, AIR, 0, 0, 0.1f};
+  State b{2, kMidY, AIR, 0, 1, 0.3f};
+  EXPECT_NE(spec.index(a), spec.index(b));
+}
+
+TEST(HeuristicTest, AdmissibleWhenFlightIsCheaperPerMeter)
+{
+  // derived 세트처럼 1m 비행이 1m 주행보다 싸면, 지상 단가만 쓰는 휴리스틱은
+  // 실제 비용을 넘는다 (admissible 하지 않다).
+  rclcpp::NodeOptions opts;
+  opts.parameter_overrides({{"energy_model.air_mode.energy_per_meter", 0.6}});
+  auto node = std::make_shared<rclcpp_lifecycle::LifecycleNode>("heuristic_test", "", opts);
+  EnergyModel m;
+  m.configure(node, "energy_model");
+
+  nav2_costmap_2d::Costmap2D grid(kNx, kNy, kRes, 0.0, 0.0, kCostFree);
+  auto terrain = std::make_shared<CostmapTerrainSource>(&grid, CostmapTerrainSource::Config{});
+  ProblemSpec::Params p;
+  p.modal = Modal::Hybrid;
+  const ProblemSpec spec(&grid, terrain, &m, p);
+
+  const double ground = m.cost(m.groundMove(1.0));
+  const double air = m.cost(m.airMoveHorizontal(1.0, 1e3));
+  ASSERT_LT(air, ground) << "전제: 1m 비행이 1m 주행보다 싸다";
+  EXPECT_LE(spec.unitCostMin(), air + 1e-12);
+
+  // 비행할 수 없는 modal 은 지상 단가 그대로 (더 타이트한 하한)
+  p.modal = Modal::RoverDetour;
+  const ProblemSpec rover(&grid, terrain, &m, p);
+  EXPECT_DOUBLE_EQ(rover.unitCostMin(), ground);
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

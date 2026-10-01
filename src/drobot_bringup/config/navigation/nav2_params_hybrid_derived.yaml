@@ -302,6 +302,8 @@ planner_server:
       timeout: 2.0
       max_expansions: 2000000
       flight_clearance: 0.8            # ← SSOT: robot_physical.yaml
+      max_flight_segment: 5.0          # ← SSOT: robot_physical.yaml (max_flight_distance)
+      flight_distance_bin: 0.25
       ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
       rover_traversable_max: 0.15
       flyover_representative_height: 0.60

@@ -111,9 +111,25 @@ ProblemSpec::ProblemSpec(
 
   buildAirLevels();
 
-  // 지상 주행 1m당 비용 (휴리스틱 하한용).
-  // 비행은 지상보다 비싸므로 지상 단가로 잡으면 admissible 하다.
-  unit_cost_ground_ = model_->cost(model_->groundMove(1.0));
+  // 비행 거리 구간 수. fbin 이 uint8_t 라 255 를 넘지 않게 한다.
+  // 구간 폭이 너무 작으면 폭을 넓혀서라도 상한을 지킨다 (제약은 flown 으로 정확히 건다).
+  if (limitsFlight()) {
+    const double bin = std::max(params_.flight_distance_bin, 1e-3);
+    n_fbins_ = static_cast<unsigned int>(
+      std::min(255.0, std::ceil(params_.max_flight_distance / bin)));
+    n_fbins_ = std::max(n_fbins_, 1u);
+    params_.flight_distance_bin = params_.max_flight_distance / n_fbins_;
+  }
+
+  // 1m 이동의 최소 비용 (휴리스틱 하한용).
+  // 예전에는 '비행은 지상보다 비싸다' 고 보고 지상 단가만 썼다. 그런데
+  // derived 세트는 비행 0.78 < 지상 0.80 (1m 당 비용)이라 휴리스틱이 실제
+  // 비용을 넘어 admissible 하지 않았다 — A* 가 최적해를 보장하지 못한다.
+  // 두 단가 중 작은 쪽을 쓴다. 비행 단가는 ground effect 없는 값(가장 싼 경우),
+  // 이착륙 고정비는 0 으로 본다 (하한이므로).
+  const double ground = model_->cost(model_->groundMove(1.0));
+  const double air = model_->cost(model_->airMoveHorizontal(1.0, 1e3));
+  unit_cost_min_ = allowFly() ? std::min(ground, air) : ground;
 }
 
 
@@ -254,7 +270,7 @@ void ProblemSpec::neighbors(const State & s, std::vector<Edge> & out) const
       for (size_t lv = 0; lv < air_levels_.size(); ++lv) {
         const auto level = static_cast<uint8_t>(lv);
         if (!airOkAt(s.mx, s.my, level)) {continue;}
-        out.push_back({{s.mx, s.my, AIR, level}, model_->takeoff(air_levels_[lv])});
+        out.push_back({{s.mx, s.my, AIR, level, 0, 0.0f}, model_->takeoff(air_levels_[lv])});
       }
     }
 
@@ -277,11 +293,25 @@ void ProblemSpec::neighbors(const State & s, std::vector<Edge> & out) const
         continue;
       }
 
+      // 비행 한 구간 거리 제약 (max_flight_segment). 정확한 누적 거리로 건다.
+      const double step = nb[i].k * res;
+      const double flown = static_cast<double>(s.flown) + step;
+      uint8_t fbin = 0;
+      if (limitsFlight()) {
+        // 1 mm 여유: mode_manager 는 착륙점까지의 거리를 좌표로 다시 재서
+        // dist > 한계 로 검사한다. 칸 중심 좌표의 부동소수 오차로 정확히 5.00 m
+        // 비행이 '초과' 로 찍힌 것을 확인했다.
+        if (flown > params_.max_flight_distance - 1e-3) {continue;}
+        fbin = static_cast<uint8_t>(std::min<double>(
+            n_fbins_ - 1, std::floor(flown / params_.flight_distance_bin)));
+      }
+
       // clearance 는 보수적으로 더 낮은 쪽을 쓴다
       const double clr = std::min(z - terrain(s.mx, s.my), z - terrain(ux, uy));
 
       out.push_back(
-        {{ux, uy, AIR, s.level}, model_->airMoveHorizontal(nb[i].k * res, clr)});
+        {{ux, uy, AIR, s.level, fbin, static_cast<float>(flown)},
+          model_->airMoveHorizontal(step, clr)});
     }
     // 4) 착륙 — 로버가 설 수 있고, 센서가 본 셀에만 (landingOk 주석 참고)
     if (landingOk(s.mx, s.my)) {
@@ -299,7 +329,7 @@ double ProblemSpec::heuristic(const State & s, const State & goal) const
   const double d_cells = params_.allow_diagonal ?
     (dx + dy) + (kSqrt2 - 2.0) * std::min(dx, dy) :
     (dx + dy);
-  return unit_cost_ground_ * d_cells * costmap_->getResolution();
+  return unit_cost_min_ * d_cells * costmap_->getResolution();
 }
 
 }  // namespace drobot_hybrid_planner

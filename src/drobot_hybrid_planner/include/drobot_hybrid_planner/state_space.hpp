@@ -74,16 +74,27 @@ enum Mode : uint8_t { GROUND = 0, AIR = 1 };
 ///       - 그 비행 구간 내내 같은 고도를 유지하며
 ///       - 착륙할 때 내려온다
 ///     실제 드론 운용(장애물 앞에서 미리 상승 후 수평 통과)과 일치한다.
+///
+/// fbin / flown — 비행 한 구간의 수평 거리 (max_flight_segment 제약).
+///     flown 은 이륙 후 지금까지 난 정확한 거리(m)다. 제약 검사는 이걸로 한다.
+///     fbin 은 flown 을 flight_distance_bin 단위로 자른 구간 번호이고
+///     상태 구분(index, ==)에 들어간다. 정확한 거리를 상태로 쓰면 0.05 m 격자에서
+///     5 m 가 수백 칸이라 상태공간이 그만큼 커진다. 구간으로 묶으면 같은 구간 안에서
+///     g 가 큰 쪽이 버려질 때만 최적성이 조금 손해를 본다. 제약 자체는 항상 지킨다.
+///     GROUND 일 때는 둘 다 0.
 struct State
 {
   unsigned int mx = 0;
   unsigned int my = 0;
   uint8_t mode = GROUND;
   uint8_t level = 0;
+  uint8_t fbin = 0;
+  float flown = 0.0f;   ///< index·== 에 안 들어간다
 
   bool operator==(const State & o) const
   {
-    return mx == o.mx && my == o.my && mode == o.mode && level == o.level;
+    return mx == o.mx && my == o.my && mode == o.mode && level == o.level &&
+           fbin == o.fbin;
   }
 };
 
@@ -212,6 +223,9 @@ public:
     /// 착륙은 센서가 본 셀에만 (TerrainSource::observed).
     /// 카메라가 못 본 장애물 윗면이 평지로 보여 그 위에 착륙하던 것을 막는다.
     bool land_only_on_observed = true;
+    /// 비행 한 구간 최대 수평 거리 (m). 0 이하면 제한 없음. SSOT max_flight_distance.
+    double max_flight_distance = 0.0;
+    double flight_distance_bin = 0.25;   ///< State::fbin 의 구간 폭 (m)
   };
 
   ProblemSpec(
@@ -301,7 +315,8 @@ public:
   {
     const size_t cell =
       static_cast<size_t>(s.my) * costmap_->getSizeInCellsX() + s.mx;
-    const size_t slot = (s.mode == GROUND) ? 0 : (1 + static_cast<size_t>(s.level));
+    const size_t slot = (s.mode == GROUND) ? 0 :
+      (1 + static_cast<size_t>(s.level) * n_fbins_ + s.fbin);
     return cell * slotsPerCell() + slot;
   }
   size_t numStates() const
@@ -309,7 +324,23 @@ public:
     return static_cast<size_t>(costmap_->getSizeInCellsX()) *
            costmap_->getSizeInCellsY() * slotsPerCell();
   }
-  size_t slotsPerCell() const {return 1 + air_levels_.size();}
+  size_t slotsPerCell() const {return 1 + air_levels_.size() * n_fbins_;}
+  /// 비행 거리 제약이 걸려 있는가
+  bool limitsFlight() const {return params_.max_flight_distance > 0.0;}
+  unsigned int numFlightBins() const {return n_fbins_;}
+  /// 휴리스틱이 쓰는 1m 최소 비용 (테스트용)
+  double unitCostMin() const {return unit_cost_min_;}
+  /// (셀, 고도) 쌍의 번호 — 비행 거리 지배 판정용. 0 ~ numAirKeys()-1
+  size_t airKey(const State & s) const
+  {
+    return (static_cast<size_t>(s.my) * costmap_->getSizeInCellsX() + s.mx) *
+           air_levels_.size() + s.level;
+  }
+  size_t numAirKeys() const
+  {
+    return static_cast<size_t>(costmap_->getSizeInCellsX()) *
+           costmap_->getSizeInCellsY() * air_levels_.size();
+  }
 
 private:
   /// 생성자에서 costmap 을 훑어 비행 고도 후보를 만든다.
@@ -322,7 +353,8 @@ private:
 
   double z_max_ = 1.75;      ///< 천장 제약에서 나온 최대 비행 고도
   double h_limit_ = 0.95;    ///< 통과 가능한 장애물 높이 상한
-  double unit_cost_ground_;  ///< 지상 주행 1m당 비용 (휴리스틱용)
+  double unit_cost_min_;     ///< 1m 이동의 최소 비용 — 지상·비행 중 싼 쪽 (휴리스틱용)
+  unsigned int n_fbins_ = 1;  ///< 비행 거리 구간 수 (제한 없으면 1)
 
   /// 비행 고도 후보 (오름차순). 생성자에서 costmap 을 훑어 만든다.
   std::vector<double> air_levels_;

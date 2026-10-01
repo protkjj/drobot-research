@@ -60,8 +60,12 @@ planner_server:
       # 주의: energy_params.yaml 의 ground_effect.activation_height(0.5)보다 크면
       #       ground effect 보정이 영원히 발동하지 않는다. 현재가 그 상태다.
 
-      # 한 번의 비행 구간 최대 거리
+      # 한 번의 비행 구간 최대 수평 거리 (이륙~착륙). 0 이하면 제한 없음.
+      # 인터페이스 규약 SSOT max_flight_distance — mode_manager 도 같은 값으로 검사한다.
       max_flight_segment: 5.0          # meters
+      # 탐색 상태에서 비행 거리를 묶는 구간 폭. 제약은 정확한 거리로 걸고,
+      # 이 폭은 상태공간 크기(5.0/0.25 = 20배)와 최적성 손실 사이의 절충이다.
+      flight_distance_bin: 0.25        # meters
 
       # ===== 지형을 어디서 읽나 (COST_HEIGHT_CONTRACT.md) =====
       # 등급(free/rover/fly_over/impassable)은 이 레이어의 자체 격자에서 읽고,

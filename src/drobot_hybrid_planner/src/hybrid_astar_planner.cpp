@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <queue>
 #include <string>
 #include <unordered_map>
@@ -155,6 +156,10 @@ void HybridAStarPlanner::configure(
   publish_switch_plan_ = getB(node, p + "publish_mode_switch_plan", publish_switch_plan_);
 
   spec_params_.flight_clearance = getD(node, p + "flight_clearance", 0.8);
+  // 비행 한 구간 최대 거리 — 인터페이스 규약 SSOT max_flight_distance.
+  // mode_manager 도 같은 값으로 검사한다. 0 이하면 제한 없음.
+  spec_params_.max_flight_distance = getD(node, p + "max_flight_segment", 5.0);
+  spec_params_.flight_distance_bin = getD(node, p + "flight_distance_bin", 0.25);
   spec_params_.allow_diagonal = getB(node, p + "allow_diagonal", true);
   spec_params_.check_diagonal_corners = getB(node, p + "check_diagonal_corners", true);
 
@@ -233,9 +238,10 @@ void HybridAStarPlanner::configure(
     logger_,
     "HybridAStarPlanner '%s' 설정 완료: modal=%s, timeout=%.2fs, "
     "flight_clearance=%.2fm, z_max=%.2fm, 통과가능 h<=%.2fm, "
-    "로버 통과높이<=%.2fm, corner_check=%s, 지형=%s, 착륙=%s",
+    "로버 통과높이<=%.2fm, 비행 1구간<=%.2fm(%u구간), corner_check=%s, 지형=%s, 착륙=%s",
     name_.c_str(), modal_name_.c_str(), timeout_s_, spec_params_.flight_clearance,
     spec_->zMax(), spec_->hLimit(), spec_->roverHLimit(),
+    spec_params_.max_flight_distance, spec_->numFlightBins(),
     spec_params_.check_diagonal_corners ? "on" : "off",
     terrain_desc.c_str(), spec_params_.land_only_on_observed ? "관측 칸만" : "어디든");
 
@@ -286,6 +292,16 @@ HybridAStarPlanner::SearchResult HybridAStarPlanner::search(
   std::unordered_map<size_t, State> parent;
   std::vector<bool> closed(spec_->numStates(), false);
 
+  // 비행 거리 지배 판정. 같은 (셀, 고도)에서 먼저 꺼낸 상태는 g 가 같거나 작다
+  // (h 가 같으므로 f 순서 = g 순서). 그 상태가 비행 거리도 같거나 짧았다면
+  // 지금 상태로 갈 수 있는 곳은 전부 그쪽에서도 같거나 싼 비용으로 갈 수 있다.
+  // 그래서 (셀, 고도)마다 지금까지 꺼낸 최소 비행 거리만 기억하고, 그보다 길면
+  // 펼치지 않는다. 최적성을 잃지 않고 fbin 으로 늘어난 상태를 대부분 쳐낸다.
+  std::vector<float> min_flown;
+  if (spec_->limitsFlight()) {
+    min_flown.assign(spec_->numAirKeys(), std::numeric_limits<float>::infinity());
+  }
+
   const size_t start_idx = spec_->index(start);
   g[start_idx] = 0.0;
   g_acc[start_idx] = CostAccumulator{};
@@ -334,6 +350,11 @@ HybridAStarPlanner::SearchResult HybridAStarPlanner::search(
     const size_t idx = spec_->index(top.s);
     if (closed[idx]) {continue;}
     closed[idx] = true;
+    if (top.s.mode == AIR && !min_flown.empty()) {
+      float & best = min_flown[spec_->airKey(top.s)];
+      if (top.s.flown >= best) {continue;}   // 지배당함
+      best = top.s.flown;
+    }
     ++result.n_expanded;
 
     if (top.s == goal) {
