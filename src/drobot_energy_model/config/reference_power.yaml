@@ -1,0 +1,44 @@
+# INA226 실측 전 임시 전력값 — 파이프라인을 돌리기 위한 자리값이다.
+#
+# ★ 이 값들은 측정된 것이 아니다 ★
+#   source: reference 로 돌리면 energy_logger 가 아래 표로 전력을 합성하고,
+#   /battery_state 의 serial_number 에 REFERENCE-NOT-MEASURED 를 박는다.
+#   trial_summary 의 에너지 칸도 이 값에서 나온 추정치다.
+#   INA226 이 붙으면 source: ina226 으로 바꾸면 된다 (코드 수정 없음).
+#
+# 값의 근거
+#   air    energy_params.yaml 의 hover_power: 50.0 W 를 그대로 썼다.
+#          저장소에서 유일하게 전력 단위로 적힌 값이라 이것만 근거로 삼았다.
+#          (energy_per_meter 들은 hover_power 와 20~70배 어긋나 쓰지 않았다.
+#           ground 0.5 Wh/m x 0.3 m/s = 540 W, air 2.0 Wh/m x 0.5 m/s = 3600 W.)
+#   rover  DRV8871 2개 + 기어드 DC 모터, 평지 0.3 m/s 주행 가정.
+#   servo  UBEC 5V 계통, 변형 arm 서보. 유지 토크 위주라 평상시 소모가 작다.
+#   logic  Teensy + IMU + LiDAR + D435i. 상시 켜져 있어 idle = active.
+
+energy_logger:
+  ros__parameters:
+    # ina226 | reference
+    source: "reference"
+
+    # 팩: 6S LiPo 5000 mAh = 22.2 V x 5.0 Ah = 111 Wh
+    battery_capacity_wh: 111.0
+    battery_initial_percentage: 1.0
+    pack_voltage_nominal: 22.2        # V — reference 모드에서 쓸 팩 전압
+
+    # 채널별 전력 (W). idle = 그 계통이 쉬는 중, active = 쓰는 중.
+    reference_power:
+      air_idle: 0.0
+      air_active: 50.0                # = hover_power
+      # ⚠ 이 값은 거의 확실히 과소평가다. 111 Wh 팩 / 56 W = 비행 119분인데,
+      #   같은 급 쿼드로터의 실제 체공은 15~25분이다. 질량 2.5 kg · 효율
+      #   9 g/W 로 보면 호버 전력은 280 W 쯤 되어야 한다 (-> 24분).
+      #   그래도 50 을 쓰는 이유: energy_params.yaml 과 출처를 하나로 두기
+      #   위해서다. 여기만 280 으로 올리면 플래너는 비행을 싸게 보는데
+      #   배터리만 빨리 닳아, 조용히 어긋나는 상태가 된다 (SSOT).
+      #   INA226 실측에서 제일 먼저 확인할 값.
+      rover_idle: 0.5
+      rover_active: 18.0
+      servo_idle: 0.6
+      servo_active: 6.0
+      logic_idle: 5.0
+      logic_active: 5.0

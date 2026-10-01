@@ -46,6 +46,7 @@ from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
+from geometry_msgs.msg import Twist
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import Float32, String
 from std_srvs.srv import Trigger
@@ -121,6 +122,14 @@ class EnergyLogger(Node):
         self.declare_parameter("battery_publish_hz", 1.0)
         # 팩 전압을 읽을 채널. logic 은 5V 강압 뒤라 팩 전압이 아니다.
         self.declare_parameter("pack_channel", "air")
+        # ina226 | reference — reference 는 INA226 없이 표로 전력을 합성한다
+        self.declare_parameter("source", "ina226")
+        self.declare_parameter("pack_voltage_nominal", 22.2)
+        for _k, _v in (("air_idle", 0.0), ("air_active", 50.0),
+                       ("rover_idle", 0.5), ("rover_active", 18.0),
+                       ("servo_idle", 0.6), ("servo_active", 6.0),
+                       ("logic_idle", 5.0), ("logic_active", 5.0)):
+            self.declare_parameter(f"reference_power.{_k}", _v)
 
         data_root = Path(self.get_parameter("data_root").value)
         self.raw_enabled = bool(self.get_parameter("raw_log_enabled").value)
@@ -168,6 +177,24 @@ class EnergyLogger(Node):
         hz = float(self.get_parameter("battery_publish_hz").value)
         self.batt_pub = self.create_publisher(BatteryState, "/battery_state", 10)
         self.create_timer(1.0 / hz, self._publish_battery)
+
+        # ---- reference 모드 ----
+        self.source = self.get_parameter("source").value
+        self.v_nom = float(self.get_parameter("pack_voltage_nominal").value)
+        self.ref_w = {k: float(self.get_parameter(f"reference_power.{k}").value)
+                      for k in ("air_idle", "air_active", "rover_idle",
+                                "rover_active", "servo_idle", "servo_active",
+                                "logic_idle", "logic_active")}
+        self.mode_state = "GROUND"     # mode_manager 의 /mode_state
+        self.driving = False           # /cmd_vel 이 0 이 아닌가
+        if self.source == "reference":
+            self.create_subscription(String, "/mode_state",
+                                     self._on_mode_state, 10)
+            self.create_subscription(Twist, "/cmd_vel", self._on_cmd_vel, 20)
+            self.create_timer(0.01, self._synth)     # 100Hz, INA226 과 같은 속도
+            self.get_logger().warn(
+                "source=reference — INA226 없이 표로 전력을 합성한다. "
+                "여기서 나오는 에너지는 측정값이 아니라 추정치다.")
 
         self.get_logger().info(f"에너지 로거 시작. 출력 디렉터리: {self.out_dir}")
         self.get_logger().info(
@@ -274,6 +301,33 @@ class EnergyLogger(Node):
     # ------------------------------------------------------------------
     # 기록
     # ------------------------------------------------------------------
+    def _on_mode_state(self, msg: String) -> None:
+        self.mode_state = msg.data
+
+    def _on_cmd_vel(self, msg: Twist) -> None:
+        self.driving = abs(msg.linear.x) > 1e-3 or abs(msg.angular.z) > 1e-3
+
+    def _synth(self) -> None:
+        """INA226 대신 표에서 전력을 만들어 넣는다.
+
+        실제 센서와 같은 경로(ChannelState.update)로 넣는 이유는,
+        나중에 source=ina226 으로 바꿔도 적분·CSV·배터리 계산이
+        그대로 쓰이게 하기 위해서다. 바뀌는 건 입력뿐이다.
+        """
+        flying = self.mode_state in ("TAKING_OFF", "FLYING", "LANDING")
+        now = time.time()
+        watts = {
+            "air":   self.ref_w["air_active"] if flying else self.ref_w["air_idle"],
+            "rover": (self.ref_w["rover_active"]
+                      if (not flying and self.driving) else self.ref_w["rover_idle"]),
+            "servo": self.ref_w["servo_active"] if flying else self.ref_w["servo_idle"],
+            "logic": self.ref_w["logic_active"],
+        }
+        for c, w in watts.items():
+            # logic 은 5V 강압 뒤 계통이라 팩 전압이 아니다
+            v = 5.0 if c == "logic" else self.v_nom
+            self.channels[c].update(v, w / v, now)
+
     def _publish_battery(self) -> None:
         """배터리 상태를 내보낸다 — mode_manager 가 이륙 가부를 판단하는 근거.
 
@@ -290,6 +344,10 @@ class EnergyLogger(Node):
         msg = BatteryState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.power_supply_technology = BatteryState.POWER_SUPPLY_TECHNOLOGY_LIPO
+        # 측정값인지 추정값인지를 메시지에 박아둔다. 받는 쪽(mode_manager)과
+        # 나중에 로그를 보는 사람이 구분할 수 있어야 한다.
+        msg.serial_number = ("REFERENCE-NOT-MEASURED"
+                             if self.source == "reference" else "INA226")
 
         live = [c for c in CHANNELS if self.channels[c].has_data]
         if not live:
