@@ -33,8 +33,7 @@
 사용 (컨테이너 안)
     python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.5
     python3 /app/tools/costmap_probe.py --topic /local_costmap/costmap_raw --x0 ...
-    python3 /app/tools/costmap_probe.py --mode elevation \\
-        --topic /global_costmap/elevation_grid --x0 ...
+    python3 /app/tools/costmap_probe.py --mode elevation --x0 ...   # elevation_grid 토픽은 찾아서 쓴다
 """
 from __future__ import annotations
 
@@ -95,11 +94,26 @@ def label_elev(v: int, fly_over_max: float) -> str:
     return f"{h:.2f} m"
 
 
+def find_topic(node, rclpy, suffix: str, prefer: str, timeout: float = 3.0):
+    """suffix 로 끝나는 토픽을 찾는다. prefer 가 들어간 것을 먼저 고른다.
+
+    노드가 막 떠서 그래프 정보가 아직 안 들어왔을 수 있어 잠깐 기다린다.
+    """
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        names = [n for n, _ in node.get_topic_names_and_types() if n.endswith(suffix)]
+        if names:
+            names.sort(key=lambda n: prefer not in n)     # False(=prefer 포함)가 앞
+            return names[0]
+        rclpy.spin_once(node, timeout_sec=0.1)
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--topic", default=None,
                     help="기본: cost 모드 /global_costmap/costmap_raw, "
-                         "elevation 모드 /global_costmap/elevation_grid")
+                         "elevation 모드는 '…/elevation_grid' 토픽을 찾아 쓴다 (global 우선)")
     ap.add_argument("--x0", type=float, required=True)
     ap.add_argument("--y0", type=float, required=True)
     ap.add_argument("--x1", type=float, required=True)
@@ -112,8 +126,9 @@ def main():
                     help="elevation 모드의 스케일 상한 (nav2_params 의 fly_over_max)")
     a = ap.parse_args()
 
-    topic = a.topic or ("/global_costmap/costmap_raw" if a.mode == "cost"
-                        else "/global_costmap/elevation_grid")
+    topic = a.topic
+    if a.mode == "cost" and topic is None:
+        topic = "/global_costmap/costmap_raw"
     if a.mode == "cost" and not topic.endswith("_raw"):
         sys.exit(f"{topic} 는 0~100 으로 환산된 토픽이라 등급을 구분할 수 없다. "
                  f"{topic}_raw 를 쓸 것 (모듈 설명 참고)")
@@ -130,6 +145,14 @@ def main():
     rclpy.init()
     node = Node("costmap_probe")
     box = {}
+
+    if topic is None:
+        # ElevationLayer 는 '<레이어 이름>/elevation_grid' 로 낸다
+        # (예: /global_costmap/elevation_layer/elevation_grid).
+        # 레이어 이름이 바뀌어도 되도록 이름을 추측하지 않고 찾는다.
+        topic = find_topic(node, rclpy, "/elevation_grid", prefer="global_costmap")
+        if topic is None:
+            sys.exit("…/elevation_grid 토픽이 없다. publish_elevation_grid: true 인지 확인할 것")
 
     if a.mode == "cost":
         from nav2_msgs.msg import Costmap
