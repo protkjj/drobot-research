@@ -61,6 +61,7 @@ class Arrival:
     skipped: bool         # 상태가 안 맞아 건너뛴 경우
     state_from: str
     state_to: str
+    blocked: str | None = None   # 배터리 등으로 이륙을 막았으면 그 이유
 
 
 class SwitchTracker:
@@ -68,18 +69,31 @@ class SwitchTracker:
                  velocity_threshold: float = 0.05,
                  cooldown_after_landing: float = 3.0,
                  max_flight_distance: float = 5.0,
-                 min_ceiling_clearance: float = 0.5):
+                 min_ceiling_clearance: float = 0.5,
+                 battery_emergency_threshold: float = 15.0,
+                 battery_safety_margin: float = 1.2,
+                 battery_capacity_wh: float = 100.0,
+                 require_battery: bool = False):
         self.arrival_radius = arrival_radius
         self.velocity_threshold = velocity_threshold
         self.cooldown_after_landing = cooldown_after_landing
         self.max_flight_distance = max_flight_distance
         self.min_ceiling_clearance = min_ceiling_clearance
+        self.battery_emergency_threshold = battery_emergency_threshold
+        self.battery_safety_margin = battery_safety_margin
+        self.battery_capacity_wh = battery_capacity_wh
+        # INA226 이 아직 없다. 하드웨어가 오기 전까지 시뮬에서는 배터리를
+        # 모르는 채로 진행해야 하므로 기본은 False.
+        # 실물에서는 True 로 올려 '모르면 안 띄운다' 로 바꾼다.
+        self.require_battery = require_battery
 
         self.state = GROUND
         self.points: list[SwitchPoint] = []
         self.idx = 0
         self.landed_at: float | None = None
         self.closest = math.inf      # 다음 전환점까지 최소 접근 거리 (진단용)
+        self.battery_pct: float | None = None   # 0.0~1.0, 모르면 None
+        self.blocked_reason: str | None = None  # 직전에 이륙을 막은 이유
 
     # ---------- 계획 ----------
     def set_plan(self, points: list[SwitchPoint]) -> bool:
@@ -94,6 +108,47 @@ class SwitchTracker:
         self.idx = 0
         self.closest = math.inf
         return True
+
+    def set_battery(self, percentage: float | None, present: bool) -> None:
+        """/battery_state 를 받아 넣는다.
+
+        present=False 거나 percentage 가 NaN 이면 '모른다'로 둔다.
+        0 으로 두지 않는 이유: 0 은 '방전됨'이라는 정보인데, 실제로는
+        측정 장비가 없다는 뜻이라 의미가 완전히 다르다.
+        """
+        if not present or percentage is None or percentage != percentage:
+            self.battery_pct = None
+        else:
+            self.battery_pct = float(percentage)
+
+    def pair_energy_wh(self, pt: SwitchPoint) -> float:
+        """이 전환점이 속한 비행 구간 한 번에 드는 에너지 (이륙+착륙)."""
+        return sum(p.energy_wh for p in self.points if p.pair_id == pt.pair_id)
+
+    def battery_blocks(self, pt: SwitchPoint) -> str | None:
+        """이륙을 막아야 하면 이유를, 괜찮으면 None 을 돌려준다.
+
+        두 가지를 본다 (둘 다 mode_switch_params.yaml 에 있는 값).
+            battery_emergency_threshold  이 아래면 무조건 금지
+            battery_safety_margin        1 사이클 소모량 대비 여유 배수
+        """
+        if self.battery_pct is None:
+            if self.require_battery:
+                return "배터리 상태 불명 (INA226 없음) — require_battery=True 라 금지"
+            return None          # 시뮬: 모르면 통과
+
+        pct = self.battery_pct * 100.0
+        if pct < self.battery_emergency_threshold:
+            return (f"잔량 {pct:.1f}% < 비상 임계 "
+                    f"{self.battery_emergency_threshold:.1f}%")
+
+        need = self.pair_energy_wh(pt) * self.battery_safety_margin
+        remain = self.battery_capacity_wh * self.battery_pct
+        if remain < need:
+            return (f"잔량 {remain:.2f} Wh < 필요 {need:.2f} Wh "
+                    f"(1 사이클 {self.pair_energy_wh(pt):.2f} Wh "
+                    f"x 여유 {self.battery_safety_margin})")
+        return None
 
     def validate(self) -> list[tuple[str, str]]:
         """계획이 C 의 실행 한계 안에 있는지 본다.
@@ -156,6 +211,20 @@ class SwitchTracker:
                          speed <= self.velocity_threshold, True, was, was)
             self._advance(t, landed=False)
             return ev
+
+        if tgt.is_takeoff:
+            # 배터리 관문. 착륙에는 걸지 않는다 — 비행 중에 막으면
+            # 내려올 방법이 없어져서 더 위험하다.
+            why = self.battery_blocks(tgt)
+            if why is not None:
+                first = why != self.blocked_reason
+                self.blocked_reason = why
+                if not first:
+                    return None          # 같은 이유는 한 번만 알린다
+                return Arrival(self.idx, len(self.points), tgt, d, speed,
+                               speed <= self.velocity_threshold, False,
+                               was, was, blocked=why)
+            self.blocked_reason = None
 
         self.state = TAKING_OFF if tgt.is_takeoff else LANDING
         return Arrival(self.idx, len(self.points), tgt, d, speed,

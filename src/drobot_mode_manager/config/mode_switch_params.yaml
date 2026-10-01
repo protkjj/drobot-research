@@ -37,3 +37,13 @@ mode_manager:
     # 규약 정렬은 A 트랙 몫이라 여기서는 파라미터로 받아 맞춰 쓴다.
     base_frame: "base_footprint"
     map_frame: "map"
+
+    # ===== 배터리 (인터페이스 규약 C -> C) =====
+    # energy_logger 가 /battery_state 로 내고 여기서 받는다.
+    # 용량은 팩 사양 — 실측으로 교체할 것                        ← 실측
+    battery_capacity_wh: 100.0
+
+    # 배터리를 모를 때 이륙을 막을지.
+    #   false — 시뮬. INA226 이 없어 present=false 로만 오므로 막으면 아무것도 못 한다
+    #   true  — 실물(Phase 2). 모르는 채로 띄우면 안 된다
+    require_battery: false

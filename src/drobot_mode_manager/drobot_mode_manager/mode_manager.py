@@ -35,6 +35,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.time import Time
 
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
 
 import tf2_ros
@@ -71,8 +72,15 @@ class ModeManager(Node):
             cooldown_after_landing=p("cooldown_after_landing", 3.0).value,
             max_flight_distance=p("max_flight_distance", 5.0).value,
             min_ceiling_clearance=p("min_ceiling_clearance", 0.5).value,
+            battery_emergency_threshold=p("battery_emergency_threshold", 15.0).value,
+            battery_safety_margin=p("battery_safety_margin", 1.2).value,
+            battery_capacity_wh=p("battery_capacity_wh", 100.0).value,
+            # INA226 이 아직 없다. 시뮬에서는 배터리를 몰라도 진행한다.
+            # 실물에서는 True 로 올린다 — 그때는 '모르면 안 띄운다'가 맞다.
+            require_battery=p("require_battery", False).value,
         )
         self.warned_tf = False
+        self.warned_batt = False
 
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf, self)
@@ -80,6 +88,9 @@ class ModeManager(Node):
         self.create_subscription(ModeSwitchPlan, "/mode_switch_points",
                                  self._on_plan, LATCHED)
         self.create_subscription(Odometry, "/odom", self._on_odom, 20)
+        # 인터페이스 규약 C -> C: energy_logger 가 내고 여기서 받는다
+        self.create_subscription(BatteryState, "/battery_state",
+                                 self._on_battery, 10)
         self.state_pub = self.create_publisher(String, "/mode_state", 10)
 
         t = self.tracker
@@ -113,6 +124,19 @@ class ModeManager(Node):
                "info": self.get_logger().info}
         for level, text in self.tracker.validate():
             log[level]("  " + text)
+
+    def _on_battery(self, msg: BatteryState):
+        """배터리 상태를 판정기에 넘긴다.
+
+        present=False 로 오면 '모른다'로 들어간다. 0% 로 넣지 않는 이유는
+        '방전'과 '측정 장비 없음'이 전혀 다른 상황이기 때문이다.
+        """
+        self.tracker.set_battery(msg.percentage, msg.present)
+        if not msg.present and not self.warned_batt:
+            self.get_logger().warn(
+                "배터리 상태 미상 (INA226 없음) — "
+                f"require_battery={self.tracker.require_battery}")
+            self.warned_batt = True
 
     # ---------- 위치 ----------
     def _robot_xy(self, odom: Odometry) -> tuple[float, float]:
@@ -152,6 +176,13 @@ class ModeManager(Node):
         if ev.skipped:
             self.get_logger().warn(
                 f"{ev.point.label}점에 닿았는데 상태가 {ev.state_from} 다 — 건너뛴다")
+            return
+
+        if ev.blocked is not None:
+            # 전환점은 그대로 둔다. 배터리가 회복되거나(충전) 파라미터가
+            # 바뀌면 다음 도달에서 다시 판정된다.
+            self.get_logger().error(
+                f"이륙 금지 ({ev.point.x:.2f}, {ev.point.y:.2f}) — {ev.blocked}")
             return
 
         self.get_logger().info(

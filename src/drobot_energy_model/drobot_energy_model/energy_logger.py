@@ -46,6 +46,7 @@ from pathlib import Path
 
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import BatteryState
 from std_msgs.msg import Float32, String
 from std_srvs.srv import Trigger
 
@@ -60,7 +61,8 @@ class ChannelState:
     voltage: float = 0.0
     current: float = 0.0
     power: float = 0.0            # W
-    energy_j: float = 0.0         # 구간 누적 에너지 (J)
+    energy_j: float = 0.0         # 구간 누적 에너지 (J) — 구간마다 리셋
+    energy_total_j: float = 0.0   # 전원 투입 후 총 에너지 (J) — 리셋 안 함
     last_stamp: float | None = None
 
     def update(self, v: float, i: float, now: float) -> None:
@@ -71,13 +73,23 @@ class ChannelState:
             # 샘플이 튀거나 멈췄을 때 이상값이 섞이지 않도록 상한을 둔다
             if 0.0 < dt < 1.0:
                 # 사다리꼴: 이전 전력과 현재 전력의 평균 × dt
-                self.energy_j += 0.5 * (self.power + p_new) * dt
+                de = 0.5 * (self.power + p_new) * dt
+                self.energy_j += de
+                # 배터리 잔량 추정용. 구간이 바뀌어도 이어져야 하므로
+                # reset_energy() 가 건드리지 않는다.
+                self.energy_total_j += de
         self.voltage = v
         self.current = i
         self.power = p_new
         self.last_stamp = now
 
+    @property
+    def has_data(self) -> bool:
+        """측정값을 한 번이라도 받았나. INA226 이 없으면 끝까지 False."""
+        return self.last_stamp is not None
+
     def reset_energy(self) -> None:
+        """구간 에너지만 0으로. energy_total_j 는 그대로 둔다."""
         self.energy_j = 0.0
 
 
@@ -102,6 +114,13 @@ class EnergyLogger(Node):
         # INA226 노드가 어떤 토픽으로 내보내는지에 맞춰 조정한다.
         # 기본은 채널별로 voltage/current 를 따로 받는 형태.
         self.declare_parameter("topic_prefix", "/ina226")
+        # ---- /battery_state 발행 (인터페이스 규약 C -> C) ----
+        # mode_manager 가 이륙 전에 배터리를 확인한다. 그 입력이 이 토픽이다.
+        self.declare_parameter("battery_capacity_wh", 100.0)   # <- 실측
+        self.declare_parameter("battery_initial_percentage", 1.0)
+        self.declare_parameter("battery_publish_hz", 1.0)
+        # 팩 전압을 읽을 채널. logic 은 5V 강압 뒤라 팩 전압이 아니다.
+        self.declare_parameter("pack_channel", "air")
 
         data_root = Path(self.get_parameter("data_root").value)
         self.raw_enabled = bool(self.get_parameter("raw_log_enabled").value)
@@ -141,6 +160,14 @@ class EnergyLogger(Node):
 
         # 100Hz 로 raw 기록
         self.create_timer(0.01, self._tick)
+
+        # ---- 배터리 상태 발행 ----
+        self.cap_wh = float(self.get_parameter("battery_capacity_wh").value)
+        self.batt_init = float(self.get_parameter("battery_initial_percentage").value)
+        self.pack_channel = self.get_parameter("pack_channel").value
+        hz = float(self.get_parameter("battery_publish_hz").value)
+        self.batt_pub = self.create_publisher(BatteryState, "/battery_state", 10)
+        self.create_timer(1.0 / hz, self._publish_battery)
 
         self.get_logger().info(f"에너지 로거 시작. 출력 디렉터리: {self.out_dir}")
         self.get_logger().info(
@@ -247,6 +274,57 @@ class EnergyLogger(Node):
     # ------------------------------------------------------------------
     # 기록
     # ------------------------------------------------------------------
+    def _publish_battery(self) -> None:
+        """배터리 상태를 내보낸다 — mode_manager 가 이륙 가부를 판단하는 근거.
+
+        잔량은 쿨롱 카운팅(소비 에너지 적산)으로 낸다. 전압 곡선으로 추정하는
+        방법도 있지만 리튬 팩은 중간 구간이 평탄해서 오차가 크다.
+        대신 "시작할 때 battery_initial_percentage 였다" 는 가정이 들어간다.
+
+        INA226 이 아직 없으면 present=False 로 내보낸다.
+        이게 중요한 이유: 측정값이 0 이면 "아무것도 안 썼다" 가 되어
+        잔량 100% 로 보인다. 그 상태로 mode_manager 가 이륙을 허가하면
+        측정 장비가 없다는 사실이 "배터리 가득" 으로 둔갑한다.
+        그래서 모른다는 것을 명시적으로 알린다.
+        """
+        msg = BatteryState()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.power_supply_technology = BatteryState.POWER_SUPPLY_TECHNOLOGY_LIPO
+
+        live = [c for c in CHANNELS if self.channels[c].has_data]
+        if not live:
+            msg.present = False
+            msg.percentage = float("nan")
+            msg.voltage = float("nan")
+            msg.current = float("nan")
+            msg.power_supply_status = BatteryState.POWER_SUPPLY_STATUS_UNKNOWN
+            self.batt_pub.publish(msg)
+            return
+
+        msg.present = True
+        pack = self.channels.get(self.pack_channel)
+        msg.voltage = float(pack.voltage) if pack and pack.has_data else float("nan")
+
+        # 총 전력은 네 채널의 합 (파일 상단 '검산' 참고).
+        # 팩 전류는 총 전력 / 팩 전압으로 환산한다 — 채널마다 측정 지점의
+        # 전압이 달라서 전류를 그냥 더하면 안 되기 때문이다.
+        p_total = sum(self.channels[c].power for c in CHANNELS)
+        if msg.voltage and msg.voltage == msg.voltage and msg.voltage > 1e-6:
+            msg.current = -float(p_total / msg.voltage)   # 방전은 음수 (ROS 규약)
+        else:
+            msg.current = float("nan")
+
+        used_wh = sum(self.channels[c].energy_total_j for c in CHANNELS) / 3600.0
+        remain = self.cap_wh * self.batt_init - used_wh
+        msg.percentage = float(max(0.0, min(1.0, remain / self.cap_wh)))
+        msg.charge = float("nan")          # Ah 는 셀 구성을 몰라 환산 불가
+        msg.capacity = float("nan")
+        msg.design_capacity = float("nan")
+        msg.power_supply_status = (
+            BatteryState.POWER_SUPPLY_STATUS_DISCHARGING if p_total > 0.0
+            else BatteryState.POWER_SUPPLY_STATUS_NOT_CHARGING)
+        self.batt_pub.publish(msg)
+
     def _tick(self) -> None:
         if not self.raw_enabled:
             return
