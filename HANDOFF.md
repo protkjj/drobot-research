@@ -1,6 +1,133 @@
 # drobot-research 진행 상황
 
-**최종 갱신 2026-08-25**
+**최종 갱신 2026-10-01 — C 트랙 (실행·에너지)**
+
+---
+
+## 지금 상태 한 줄 요약
+
+3인 분담(A 지각 / B 계획 / **C 실행·에너지**)이 정해졌고, kj 는 **C 담당**이다.
+브랜치 `track-c` 에서 C 소유 3개 패키지의 빈칸을 채웠다 —
+`mode_manager` 를 새로 만들고, 끊겨 있던 `/battery_state` 계약을 양쪽에 연결하고,
+`trial_summary` 를 구현했다. **전부 ROS 없이 검증 가능한 구조로 짰고 맥북에서 통과했다.**
+시뮬 실행 검증만 남았는데, **그건 A 트랙의 Gazebo 결함에 막혀 있다.**
+
+### 기준 문서 (2026-09-26 수령)
+
+- `드로봇_패키지_파일_구조_가이드.pdf` — 패키지 분할·의존성·설정 독립화·3인 분담
+- `드로봇 인터페이스 규약.pdf` — TF 트리, 토픽·QoS, 메시지, 4개 계약
+- `드로봇_빌드_매니페스트.pdf` — 패키지별 파일과 설정값
+
+---
+
+## C 트랙 현황
+
+| 항목 | 상태 | 검증 |
+|---|---|---|
+| `entry_points` 등록 (4개 노드) | ✅ | 데탑 `ros2 pkg executables` 확인 |
+| 단계 1 전환 판정 `switch_tracker` | ✅ | 단위테스트 11/11 + 기록 replay |
+| `record_run` `/cmd_vel` 기록 | ✅ | 문법·회귀 |
+| 단계 3 `/battery_state` 계약 | ✅ | 단위테스트 (배터리 관문 5종) |
+| 단계 4 `trial_summary` | ✅ | 기록 2건으로 CSV 생성, yaml 스키마 일치 |
+| INA226 레퍼런스 전력값 | ✅ | 수치 검산 |
+| **단계 2 이착륙 백엔드** | ❌ | Gazebo `set_pose` 방식으로 결정됨 |
+| **INA226 실측** | ❌ | Phase 2 하드웨어 |
+| **시뮬 실행 검증** | ❌ | **A 트랙 Gazebo 결함에 막힘** |
+
+### 설계 원칙 — 왜 로직을 떼어냈나
+
+`switch_tracker.py`(판정)와 `mode_manager.py`(ROS 배선)를 나눴고,
+`trial_summary.py` 도 ROS 를 import 하지 않는다. 패키지 가이드 04 절 원칙이다.
+덕분에 **시뮬이 멈춰 있는 지금도 맥북에서 전부 검증된다.**
+전환이 실패했을 때 "지점을 잘못 집었는지 / 띄우는 데 실패했는지" 도 갈린다.
+
+---
+
+## ⚠ A 트랙에 넘길 것 — Gazebo 가 멈춘다 (2026-10-01 진단 완료)
+
+`base_map_h0.5` 로 시뮬을 띄우면 **`/clock` 부터 모든 토픽이 0** 이다.
+Nav2 는 정상(`Managed nodes are active`)이고 브리지도 정상인데 데이터가 없다.
+
+```
+robot spawn            성공  (create-3: Entity creation successful)
+센서 3개 붙음           camera / imu / lidar  (gazebo-2 경고에서 확인)
+gz topic -l            완전히 빈 출력
+/gazebo/worlds         Service call timed out    <- Gazebo 메인 루프가 막혔다
+empty.sdf 로는         정상 동작                  <- 센서가 없는 월드
+우리 월드 단독 실행      Sensors.cc:337 Waiting for init 에서 멈춤
+```
+
+**원인**: headless(`-r -s`, DISPLAY 없음)에서 Sensors 시스템이 ogre2 를
+초기화하지 못해 시뮬 루프가 한 스텝도 안 돈다.
+`--headless-rendering` 과 `DISPLAY=:0` 둘 다 효과 없음(68줄 출력 동일).
+
+**해당 파일**: `drobot_description` URDF 의 센서 3개, `drobot_bringup/launch/navigation.launch.py` 의 `gz_args`.
+둘 다 A 트랙 소유다.
+
+### 그 외 다른 트랙 항목
+
+- **B** — 착륙점이 장애물 한가운데다. `base_map_h0.5` 계획의 착륙점 (1.33, 4.53) 지형높이 0.50 m 인데 `z=0.0`.
+  착륙 후 목표까지 직선인데 그 사이 2.3 m 가 장애물이고 전환점이 없다.
+  지상 waypoint 가 지형높이를 무시한다 (`hybrid_astar_planner.cpp:294`).
+  오른쪽 x=4~6 의 빈 통로도 안 쓴다.
+- **B/공동** — `angular_dist_threshold: 0.1` 은 5.7° 인데 주석은 45° 라고 한다 (Nav2 기본값 0.785).
+  파라미터 파일 3개 전부. 로봇이 반지름 0.12 m 원을 1.9 바퀴 돈 것과 관련 있을 수 있다 — **미확인**.
+- **A** — TF 가 규약(`base_link`)과 다르다 (`base_footprint`). `map` 프레임 발행 주체는 slam_toolbox.
+
+---
+
+## 주행 실패 분석 (기록 2건, 맥북에서 오프라인 분석)
+
+```
+sim_base_map_h0.5_derived   aborted    35.6s  이동 1.41 m  변위 0.20 m  회전 679.6°
+sim_medium_open_derived     succeeded  43.7s  이동 2.37 m  변위 0.25 m
+```
+
+- 로봇이 **반지름 0.12 m 원을 1.9 바퀴** 돌았다. 5초마다 꼬박 125° + 0.26 m 로 일정하다.
+- 이륙점까지 최소 접근 0.72 m (도달반경 0.35 m). **전환 로직은 한 번도 안 불렸다.**
+- `sim_medium_open_derived` 의 `succeeded` 는 **거짓**이다. GoalStatus 판정 수정(`2d95e7a`, 09-19 00:09)
+  **4일 전** 기록이다. 목표가 (20.5, 7.0) 인데 2.37 m 만 움직였다. 이 파일 결과는 쓰면 안 된다.
+
+---
+
+## 에너지 파라미터 — 서로 안 맞는다
+
+```
+ground  0.5 Wh/m x 0.3 m/s =  540 W
+air     2.0 Wh/m x 0.5 m/s = 3600 W      hover_power 50 W 의 72배
+derived 0.6 Wh/m x 0.5 m/s = 1080 W      21배
+```
+
+레퍼런스 전력표(`drobot_energy_model/config/reference_power.yaml`)는
+전력 단위로 적힌 유일한 값 `hover_power: 50 W` 만 근거로 삼았다.
+
+```
+111 Wh 팩 기준   정지 1092분 · 지상주행 282분 · 비행 108분
+이착륙 9초 실소모 0.154 Wh
+  vs default 전환 1회 8.0 Wh  (52배)
+  vs derived 전환 1회 0.8 Wh  ( 5배)
+```
+
+비행 108분은 같은 급 쿼드로터 실제 체공(15~25분)의 5배다 — `hover_power` 과소평가가 거의 확실하다.
+그래도 50 을 유지한 이유는 `energy_params.yaml` 과 출처를 하나로 두기 위해서다(SSOT).
+**INA226 실측 1순위.**
+
+---
+
+## 다음에 할 일 (C)
+
+1. **단계 2 이착륙 백엔드** — Gazebo `set_pose` 로 실제로 띄운다. 코드는 지금 쓸 수 있고 실행 검증만 막혀 있다.
+2. **시뮬 실행 검증** — A 가 Gazebo 를 고치면: `mode_manager` 가 계획을 받는지, 전환을 잡는지.
+3. **INA226 실측** — `source: reference` 를 `ina226` 으로. 코드 수정 불필요.
+
+### 바로 되는 것 (Gazebo 불필요)
+
+포스터용 A\*/RRT\* 경로 캡처는 `publish_paths` 가 Python 으로 계산해 latch 발행하므로
+Gazebo·Nav2 없이 RViz 만으로 된다. `map` 프레임은 `static_transform_publisher` 로 세우면 된다.
+
+---
+
+## 이전 기록 (2026-08-25 이전)
 
 ---
 
