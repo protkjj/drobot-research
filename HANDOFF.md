@@ -1,96 +1,163 @@
 # drobot-research 진행 상황
 
-**최종 갱신 2026-10-01 — C 트랙 (실행·에너지)**
+**최종 갱신 2026-10-02 — C 트랙 (실행·에너지)**
+
+브랜치 `integration` = A(eunseo) + C(track-c) + 미푸시분. 충돌 0, SSOT 불일치 0.
+실행 절차는 `RUN.md`, Gazebo 진단은 `tools/diag_gz.sh`.
 
 ---
 
-## 지금 상태 한 줄 요약
+## 한 줄 요약
 
-3인 분담(A 지각 / B 계획 / **C 실행·에너지**)이 정해졌고, kj 는 **C 담당**이다.
-브랜치 `track-c` 에서 C 소유 3개 패키지의 빈칸을 채웠다 —
-`mode_manager` 를 새로 만들고, 끊겨 있던 `/battery_state` 계약을 양쪽에 연결하고,
-`trial_summary` 를 구현했다. **전부 ROS 없이 검증 가능한 구조로 짰고 맥북에서 통과했다.**
-시뮬 실행 검증만 남았는데, **그건 A 트랙의 Gazebo 결함에 막혀 있다.**
-
-### 기준 문서 (2026-09-26 수령)
-
-- `드로봇_패키지_파일_구조_가이드.pdf` — 패키지 분할·의존성·설정 독립화·3인 분담
-- `드로봇 인터페이스 규약.pdf` — TF 트리, 토픽·QoS, 메시지, 4개 계약
-- `드로봇_빌드_매니페스트.pdf` — 패키지별 파일과 설정값
+**C 트랙 단계 1~4 를 전부 구현하고 시뮬에서 전 사이클 완주를 확인했다.**
+`GROUND → TAKING_OFF → FLYING → LANDING → GROUND`, 착륙 오차 17 cm.
+남은 건 **위치추정이 비행을 못 따라오는 구조적 문제**와 B 트랙 플래너 안정화다.
 
 ---
 
-## C 트랙 현황
+## 1. 오늘 한 것 (2026-10-01 ~ 02)
 
-| 항목 | 상태 | 검증 |
+### C 트랙 — 소유 3개 패키지의 빈칸을 채웠다
+
+| 단계 | 내용 | 검증 |
 |---|---|---|
-| `entry_points` 등록 (4개 노드) | ✅ | 데탑 `ros2 pkg executables` 확인 |
-| 단계 1 전환 판정 `switch_tracker` | ✅ | 단위테스트 11/11 + 기록 replay |
-| `record_run` `/cmd_vel` 기록 | ✅ | 문법·회귀 |
-| 단계 3 `/battery_state` 계약 | ✅ | 단위테스트 (배터리 관문 5종) |
-| 단계 4 `trial_summary` | ✅ | 기록 2건으로 CSV 생성, yaml 스키마 일치 |
-| INA226 레퍼런스 전력값 | ✅ | 수치 검산 |
-| 단계 2 이착륙 백엔드 | ✅ | 단위테스트 14/14 · 실행 검증만 A 대기 |
-| **INA226 실측** | ❌ | Phase 2 하드웨어 |
-| **시뮬 실행 검증** | ❌ | **A 트랙 Gazebo 결함에 막힘** |
+| 0 | `entry_points` 등록 (4개 노드) | 데탑 `ros2 pkg executables` |
+| 1 | 전환 판정 `switch_tracker` | 단위테스트 11 + 기록 replay |
+| 2 | 이착륙 백엔드 `flight_profile` + `backends` | 단위테스트 15 |
+| 3 | `/battery_state` 계약 양쪽 연결 | 배터리 관문 5종 테스트 |
+| 4 | `trial_summary` 한 줄 요약 | 기록 2건 + yaml 스키마 일치 |
+| — | INA226 레퍼런스 전력값 | 수치 검산 |
+| — | 비행 중 Nav2 속도 제한 | 실측 동작 확인 |
+| — | 비행 뒤 위치추정 재설정 | **미검증** |
 
-### 설계 원칙 — 왜 로직을 떼어냈나
+설계: 판정(`switch_tracker`) / 타이밍(`flight_profile`) / 실행(`backends`) /
+ROS 배선(`mode_manager`) 넷으로 나눴다. 앞의 셋은 ROS 를 import 하지 않아
+**시뮬 없이 맥북에서 전부 검증된다**. 전환이 실패했을 때 어디가 틀렸는지도 갈린다.
 
-`switch_tracker.py`(판정)와 `mode_manager.py`(ROS 배선)를 나눴고,
-`trial_summary.py` 도 ROS 를 import 하지 않는다. 패키지 가이드 04 절 원칙이다.
-덕분에 **시뮬이 멈춰 있는 지금도 맥북에서 전부 검증된다.**
-전환이 실패했을 때 "지점을 잘못 집었는지 / 띄우는 데 실패했는지" 도 갈린다.
+### 시뮬이 안 돌던 것 — 원인 둘을 찾아 고쳤다
+
+**① 렌더 엔진** — 월드의 `<render_engine>ogre2</render_engine>` 가
+RTX 5070 Ti(Blackwell, driver 580) + gz-sim 8.11 에서 렌더 스레드 초기화를
+끝내지 못한다. Sensors 가 그걸 기다리며 메인 루프를 막아 `/clock` 부터 모든
+토픽이 0 이 된다. 월드 12개와 생성기를 `ogre`(v1) 로 바꿨다.
+
+**② 실행 사용자** — `docker exec -u $(id -u):$(id -g)` 로 `ros2 launch` 를
+띄우면 같은 증상. root 로 띄우면 매번 성공(3/3 vs 전부 실패). `sync.sh do_sim`
+에서 `-u` 를 뺐다. **메커니즘은 미규명** — gz sim 단독은 `-u` 로도 매번 된다.
+
+**제거한 가설 (다시 밟지 말 것)**: LD_LIBRARY_PATH · GZ_SIM_RESOURCE_PATH ·
+HOME · 브리지와 카메라 구독 · WorldControl unpause · 스폰 타이밍 ·
+스폰 방식(-file/-topic) · UID 그룹과 /dev/dri 권한 · 컨테이너·GPU 재시작 ·
+노드 기동 지연(startup_delay).
+
+### 로봇 모델 — primitives 를 버리고 원본 메시로
+
+내가 이전 세션에 급조한 `drobot_primitives.urdf.xacro` 가 틀려 있었다.
+
+```
+base_link        0.128 x 0.055 x 0.090 m   바퀴 지름 0.212 m 보다 작다
+left_front_arm   origin z = -0.216881      팔이 링크 원점에서 22cm 아래
+right_front_arm  origin z = -0.175993      좌우 비대칭
+```
+
+visual 뿐 아니라 **collision 도 같은 값**이라 물리가 어긋났다. 팔 충돌체가
+땅을 긁고 있었을 가능성이 크다 — 메시로 바꾸자 주행이 눈에 띄게 좋아졌다.
+
+```
+                 primitives    mesh
+회전만 비율         64%          42%
+이륙점 도달 시 속도  0.008 m/s    0.402 m/s  (최고속 주행 중 도달)
+재계획             60회/33초     20회/13초
+```
+
+STL 13개가 실파일로 복구돼 있어 `robot_model` 기본값을 `mesh` 로 바꿨다.
+primitives 는 상단에 폐기 사유를 달아 참고용으로만 남겼다.
+
+### 기록이 거짓이던 것 — 고쳤다
+
+`record_run` 이 비행을 하고도 "모드 전환 0회" 로 적었다. `/mode_switch_points`
+를 depth=1 로 받는데 Nav2 가 재계획하며 마지막에 전환점 0개짜리 계획을 내면
+그걸 덮어썼기 때문이다. 빈 계획으로 덮지 않게 하고, `/mode_state` 를 구독해
+**실제로 수행한 전이**를 따로 남긴다. `trial_summary` 의 `num_switches` 도
+계획이 아니라 실행 횟수를 쓴다.
 
 ---
 
-## ⚠ A 트랙에 넘길 것 — Gazebo 가 멈춘다 (2026-10-01 진단 완료)
+## 2. ⚠ 가장 중요한 미해결 — 위치추정이 비행을 못 따라온다
 
-`base_map_h0.5` 로 시뮬을 띄우면 **`/clock` 부터 모든 토픽이 0** 이다.
-Nav2 는 정상(`Managed nodes are active`)이고 브리지도 정상인데 데이터가 없다.
+**증상 (실측)**
 
 ```
-robot spawn            성공  (create-3: Entity creation successful)
-센서 3개 붙음           camera / imu / lidar  (gazebo-2 경고에서 확인)
-gz topic -l            완전히 빈 출력
-/gazebo/worlds         Service call timed out    <- Gazebo 메인 루프가 막혔다
-empty.sdf 로는         정상 동작                  <- 센서가 없는 월드
-우리 월드 단독 실행      Sensors.cc:337 Waiting for init 에서 멈춤
+Gazebo 모델   벽 너머 (2.03, 4.08) 로 이동함
+/odom         시작 위치 그대로
+TF → RViz     로봇이 벽에 박힌 자리에 그대로 그려짐
+Nav2          "로봇이 안 움직였다" → 계속 몰아붙이다 aborted
 ```
 
-**원인**: headless(`-r -s`, DISPLAY 없음)에서 Sensors 시스템이 ogre2 를
-초기화하지 못해 시뮬 루프가 한 스텝도 안 돈다.
-`--headless-rendering` 과 `DISPLAY=:0` 둘 다 효과 없음(68줄 출력 동일).
+**원인**
 
-**해당 파일**: `drobot_description` URDF 의 센서 3개, `drobot_bringup/launch/navigation.launch.py` 의 `gz_args`.
-둘 다 A 트랙 소유다.
+`set_pose` 순간이동은 IMU 에 아무 가속도도 남기지 않는다. EKF 입장에서는
+말이 안 되는 점프라 걸러낸다. 그래서 `odom → base_footprint` 가 옛 자리에 머문다.
 
-### 그 외 다른 트랙 항목
+**지금 한 조치 (미검증)**
 
-- **B** — 착륙점이 장애물 한가운데다. `base_map_h0.5` 계획의 착륙점 (1.33, 4.53) 지형높이 0.50 m 인데 `z=0.0`.
-  착륙 후 목표까지 직선인데 그 사이 2.3 m 가 장애물이고 전환점이 없다.
-  지상 waypoint 가 지형높이를 무시한다 (`hybrid_astar_planner.cpp:294`).
-  오른쪽 x=4~6 의 빈 통로도 안 쓴다.
-- **B/공동** — `angular_dist_threshold: 0.1` 은 5.7° 인데 주석은 45° 라고 한다 (Nav2 기본값 0.785).
-  파라미터 파일 3개 전부. 로봇이 반지름 0.12 m 원을 1.9 바퀴 돈 것과 관련 있을 수 있다 — **미확인**.
-- **A** — TF 가 규약(`base_link`)과 다르다 (`base_footprint`). `map` 프레임 발행 주체는 slam_toolbox.
+착륙 후 `robot_localization` 의 `set_pose` 서비스로 EKF 를 착륙 지점에
+다시 맞춘다 (`reset_localization_after_flight`). 빌드 매니페스트의 C 완료
+기준 "SLAM 재개" 가 이 단계다.
+
+**왜 이것으로 끝이 아닌가**
+
+- EKF 만 다시 잡는다. `slam_toolbox` 의 `map → odom` 은 그대로라 지도 기준
+  위치에 오차가 남는다.
+- 인터페이스 규약 ① 은 `map → odom` 을 **"비행 중 정지, 착륙 후 재보정"**
+  으로 정해뒀다. 그 절차를 제대로 밟아야 한다.
+- 근본적으로 이건 **비행을 운동학 재생으로 흉내 내는 방식의 비용**이다.
+  실제 추력으로 떠오르는 게 아니라 좌표를 덮어쓰니 센서·추정이 그걸 모른다.
+  실물 PX4 백엔드로 가면 사라지는 문제다.
+
+**다음에 할 것**
+
+1. 위 조치가 실제로 먹는지 확인 (로그에 `위치추정 재설정 → (x, y)` 가 뜨고
+   RViz 로봇이 따라오는지)
+2. 안 되면 서비스 이름 확인 (`ros2 service list | grep -i pose`)
+3. 비행 중 slam_toolbox 를 멈췄다가 착륙 후 재개하는 절차 추가
+4. 궁극적으로는 PX4 백엔드 (`backends.Px4Backend`, 지금은 빈 껍데기)
 
 ---
 
-## 주행 실패 분석 (기록 2건, 맥북에서 오프라인 분석)
+## 3. 트랙별 현황
+
+| 트랙 | 상태 |
+|---|---|
+| **A** 지각·지도 | 완료 기준 전부 실증 — Gazebo spawn, 센서 토픽, TF `map→base_footprint`, depth PointCloud2, global_costmap, elevation_layer(local·global 로드 + 분류 동작), robot_physical SSOT |
+| **B** 계획·비용 | 동작하나 불안정 — 아래 참고 |
+| **C** 실행·에너지 | 단계 1~4 완료, 전 사이클 실증. INA226 실측과 위치추정 문제가 남음 |
+
+### B 에게 (수정 중이라고 들음)
 
 ```
-sim_base_map_h0.5_derived   aborted    35.6s  이동 1.41 m  변위 0.20 m  회전 679.6°
-sim_medium_open_derived     succeeded  43.7s  이동 2.37 m  변위 0.25 m
+21cm 구간에 이착륙을 건다        쌍 0: (0.27, 3.93) → (0.43, 4.08) 거리 0.21 m
+                                 전환 1회 11.2 Wh 를 쓰면서
+재계획이 잦고 전환점이 매번 튄다   20회/13초, 매 계획마다 다른 자리
+착륙점이 장애물 한가운데          (1.33, 4.53) 지형높이 0.50 m 인데 z=0.0
+                                 지상 waypoint z 가 지형높이 무시
+                                 hybrid_astar_planner.cpp:294
 ```
 
-- 로봇이 **반지름 0.12 m 원을 1.9 바퀴** 돌았다. 5초마다 꼬박 125° + 0.26 m 로 일정하다.
-- 이륙점까지 최소 접근 0.72 m (도달반경 0.35 m). **전환 로직은 한 번도 안 불렸다.**
-- `sim_medium_open_derived` 의 `succeeded` 는 **거짓**이다. GoalStatus 판정 수정(`2d95e7a`, 09-19 00:09)
-  **4일 전** 기록이다. 목표가 (20.5, 7.0) 인데 2.37 m 만 움직였다. 이 파일 결과는 쓰면 안 된다.
+### 공동 — 킥오프에서 정할 것
+
+```
+angular_dist_threshold: 0.1 은 5.7° 인데 주석은 45° (Nav2 기본 0.785)
+  파라미터 파일 3개 전부. 회전만 비율이 높은 것과 관련 있을 수 있다 — 미확인
+규약은 TF 를 base_link 로 정했는데 실제는 base_footprint
+  동작에는 문제없다. 문서를 고치든 코드를 고치든 택일할 것
+월드 이름에 '.' 이 들어가 ROS 서비스 경로로 못 쓴다 (base_map_h0.5)
+  mode_manager 가 gz CLI 로 떨어지는 이유. 이름을 바꾸거나 리맵이 필요
+```
 
 ---
 
-## 에너지 파라미터 — 서로 안 맞는다
+## 4. 에너지 파라미터가 서로 안 맞는다
 
 ```
 ground  0.5 Wh/m x 0.3 m/s =  540 W
@@ -108,21 +175,9 @@ derived 0.6 Wh/m x 0.5 m/s = 1080 W      21배
   vs derived 전환 1회 0.8 Wh  ( 5배)
 ```
 
-비행 108분은 같은 급 쿼드로터 실제 체공(15~25분)의 5배다 — `hover_power` 과소평가가 거의 확실하다.
-그래도 50 을 유지한 이유는 `energy_params.yaml` 과 출처를 하나로 두기 위해서다(SSOT).
-**INA226 실측 1순위.**
-
----
-
-## 다음에 할 일 (C)
-
-1. **시뮬 실행 검증** — A 가 Gazebo 를 고치면: `mode_manager` 가 계획을 받는지, 전환을 잡는지.
-3. **INA226 실측** — `source: reference` 를 `ina226` 으로. 코드 수정 불필요.
-
-### 바로 되는 것 (Gazebo 불필요)
-
-포스터용 A\*/RRT\* 경로 캡처는 `publish_paths` 가 Python 으로 계산해 latch 발행하므로
-Gazebo·Nav2 없이 RViz 만으로 된다. `map` 프레임은 `static_transform_publisher` 로 세우면 된다.
+비행 108분은 같은 급 쿼드로터 실제 체공(15~25분)의 5배다 — `hover_power`
+과소평가가 거의 확실하다. 그래도 50 을 유지한 이유는 `energy_params.yaml` 과
+출처를 하나로 두기 위해서다(SSOT). **INA226 실측 1순위.**
 
 ---
 
