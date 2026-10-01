@@ -6,7 +6,7 @@
        Modifications:
        - ROS1 catkin -> ROS2 ament, .urdf -> .urdf.xacro
        - mesh paths: package://drobot_description/meshes/
-       - base_footprint added (z=0.25 offset)
+       - base_footprint added (z=0 — 2026-10-02 에 0.25 에서 고침, 아래 BASE 참고)
        - left_rear_arm mass=0 -> 0.05 + min inertia
        - arm dynamics: damping=5.0 friction=1.0
        - wheel dynamics: damping=0.1 friction=0.05
@@ -26,12 +26,30 @@
   <material name="sensor_color"><color rgba="0.79 0.82 0.93 1"/></material>
 
   <!-- ==================== BASE ==================== -->
+  <!-- base_footprint 는 바퀴가 닿는 바닥면이어야 한다 (REP-120).
+
+       이 메시 모델은 base_link 원점이 이미 바닥 높이에 있다.
+       바퀴 접지점이 base_link 기준 z = -0.002(왼쪽) / +0.005(오른쪽) 이다
+       (tools/urdf_ground_check.py 로 STL 에서 계산).
+       그래서 오프셋은 0 이다.
+
+       예전 값 0.25 는 base_link 가 바닥에서 25 cm 위에 있다고 가정한 것이었다.
+       그러면 Gazebo 에서는 바퀴가 땅에 닿아야 하므로 base_footprint 가
+       땅 밑 -0.25 m 에 놓이는데 (실측 gz model z = -0.2518),
+       EKF(two_d_mode) 는 base_footprint 를 z=0 으로 고정한다.
+       그 결과 TF 를 거친 센서 점이 전부 0.25 m 들려서
+         - 빈 바닥이 0.25 m 로 측정됐고 (> rover_traversable_max 0.15 → fly_over)
+         - 카메라가 TF 상 0.61 m, 실제 0.36 m 라 0.5 m 장애물 윗면을 못 봤다.
+
+       남는 오차: 좌우 바퀴 메시가 7 mm 비대칭이라 로봇이 약 1.2° 기울어
+       놓인다 (실측 roll 0.021 rad). two_d_mode 는 이 기울기를 TF 에 넣지
+       않으므로 바닥이 옆으로 4 m 떨어진 곳에서 ±8 cm 정도 기울어 보인다. -->
   <link name="base_footprint"/>
 
   <joint name="base_footprint_joint" type="fixed">
     <parent link="base_footprint"/>
     <child link="base_link"/>
-    <origin xyz="0 0 0.25" rpy="0 0 0"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
   </joint>
 
   <link name="base_link">
@@ -102,21 +120,16 @@
     <child link="camera_link"/>
   </joint>
 
-  <!-- 카메라 광학 프레임 (REP-103 / REP-145)
-       Gazebo 의 rgbd 센서는 포인트클라우드를 광학 좌표계로 낸다:
-           x 오른쪽 · y 아래 · z 전방
-       반면 camera_link 는 ROS 본체 좌표계다:
-           x 전방 · y 왼쪽 · z 위
-       둘을 같은 프레임으로 선언하면 축이 두 번 90도 어긋나, 바닥 점이
-       로봇 자신의 높이로 찍히고 장애물은 엉뚱한 자리에 쌓인다.
-       실제로 elevation_layer 가 빈 바닥 전 구간을 0.25 m(= base_link 높이)로
-       보고 0.5 m 장애물은 전혀 못 봤다. 2026-10-02 확인.
+  <!-- 카메라 광학 프레임 (REP-103: x 오른쪽 · y 아래 · z 전방)
 
-       주의: gazebo.xacro 의 gz_frame_id 는 camera_link 를 쓴다.
-       Gazebo 가 내는 PointCloud2 는 이미 x 전방 규약이라
-       이 프레임을 가리키면 90도 회전이 두 번 들어가 점이 엉뚱한
-       방향으로 날아간다 (실측 확인). 이 링크는 다른 도구와의
-       호환을 위해 선언만 해 둔다. -->
+       gazebo.xacro 의 gz_frame_id 는 이 프레임이 아니라 camera_link 를 쓴다.
+       Gazebo 가 내는 PointCloud2 는 이미 본체 규약(x 전방 · y 왼쪽 · z 위)이라
+       여기를 가리키면 회전이 한 번 더 들어가 점이 엉뚱한 방향으로 날아간다
+       (2026-10-02 실측: 점이 +y 대신 +x 로 갔다).
+       광학 규약을 기대하는 다른 도구와의 호환을 위해 선언만 해 둔다.
+
+       참고: 같은 날 '빈 바닥이 0.25 m 로 보인다' 를 이 프레임 탓으로 잘못
+       짚었었다. 원인은 base_footprint_joint 의 높이였다 (위 BASE 참고). -->
   <link name="camera_link_optical"/>
   <joint name="camera_optical_joint" type="fixed">
     <origin xyz="0 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
