@@ -61,8 +61,13 @@ RSYNC_OPTS=(
 # 빌드 대상. C++ 는 컴파일이 필요하고, Python 패키지도 한 번은 빌드해야
 # setup.py 의 entry_points 가 등록돼 ros2 run 으로 불린다
 # (--symlink-install 이라 이후 코드 수정은 재빌드 없이 반영된다).
+#
+# bringup·description 이 빠져 있어 런치/URDF 를 고쳐도 설치본에 반영되지
+# 않은 채로 시뮬을 돌린 적이 있다 (2026-10-01). 그러면 고친 걸 시험한 게
+# 아닌데 '안 고쳐졌다' 고 판단하게 된다. 그래서 둘 다 목록에 넣는다.
 PKGS="drobot_msgs drobot_hybrid_planner drobot_costmap_2_5d \
-drobot_mode_manager drobot_experiments drobot_energy_model"
+drobot_mode_manager drobot_experiments drobot_energy_model \
+drobot_bringup drobot_description"
 
 do_sync() {
   echo "==> 동기화: $LOCAL_DIR -> $REMOTE:$REMOTE_DIR"
@@ -134,6 +139,46 @@ do_test() {
     '"
 }
 
+check_sim_args() {
+  local world="$1" planner="$2" mode="$3"
+  local ok=0
+
+  case "$world" in
+    -*) echo "오류: 월드 이름에 플래그가 들어왔다 ('$world')." >&2; ok=1 ;;
+  esac
+  case "$planner" in
+    smac2d|proposed) ;;
+    -*|"") echo "오류: 플래너 이름이 이상하다 ('$planner')." >&2; ok=1 ;;
+    *) echo "경고: 모르는 플래너 '$planner' (아는 것: smac2d proposed)" >&2 ;;
+  esac
+  case "$mode" in
+    headless|gui) ;;
+    *) echo "오류: mode 는 headless 또는 gui 여야 한다 ('$mode')." >&2; ok=1 ;;
+  esac
+
+  # 월드 파일이 로컬에 있는지 본다 (rsync 제외 대상이라 없을 수도 있다)
+  local wd="$LOCAL_DIR/src/drobot_description/worlds"
+  # ls 에 여러 경로를 주면 하나라도 없을 때 실패한다 — 있는지 하나씩 본다
+  local found=0
+  if [ -d "$wd" ]; then
+    for cand in "$wd/$world.sdf" "$wd"/*/"$world.sdf"; do
+      [ -f "$cand" ] && found=1 && break
+    done
+  fi
+  if [ "$ok" = 0 ] && [ -d "$wd" ] && [ "$found" = 0 ]; then
+    echo "경고: 로컬에 $world.sdf 가 없다 (원격에는 있을 수 있음)" >&2
+    echo "      있는 월드: $(ls "$wd"/*.sdf 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/.sdf$//' | tr '\n' ' ')" >&2
+  fi
+
+  if [ "$ok" != 0 ]; then
+    echo "" >&2
+    echo "사용법: ./sync.sh sim <world> <planner> [gui]" >&2
+    echo "  에너지 세트는 환경변수다:  DROBOT_ENERGY=derived ./sync.sh sim base_map_h0.5 proposed" >&2
+    return 1
+  fi
+  return 0
+}
+
 do_sim() {
   # 시뮬레이션은 빌드가 끝난 뒤에만 띄운다.
   #
@@ -144,6 +189,11 @@ do_sim() {
   local world="${2:-medium_open}"
   local planner="${3:-proposed}"
   local mode="${4:-headless}"
+
+  # 인자는 위치 기반이다. 플래그를 주면 그게 월드 이름으로 들어가
+  # Gazebo 가 없는 월드를 열려다 조용히 실패한다 — 실제로 한 번 겪었다
+  # (world=--world 로 들어가 30분을 날렸다). 여기서 막는다.
+  check_sim_args "$world" "$planner" "$mode" || return 1
   ensure_container || return 1
   local energy="${DROBOT_ENERGY:-default}"   # default | derived (§energy 인자)
 
@@ -161,7 +211,7 @@ do_sim() {
       nohup ros2 launch drobot_bringup navigation.launch.py \
         world:=$world planner:=$planner energy:=$energy robot_model:=primitives $gui_args \
         > /app/sim.log 2>&1 &
-      echo \"launch 시작 — 로그: ~/drobot-research/sim.log\"
+      echo \"launch 시작 — 로그: $REMOTE_DIR/sim.log\"
     '"
   echo "    확인이 끝나면 반드시: ./sync.sh stop"
 }
