@@ -76,3 +76,10 @@ mode_manager:
     # Nav2 가 로봇이 안 움직였다고 믿어 목표를 포기한다 (실측 확인).
     reset_localization_after_flight: true
     ekf_set_pose_service: "/set_pose"
+
+    # 비행 중 SLAM 정지 (인터페이스 규약 ①: "비행 중 정지, 착륙 후 재보정")
+    # 순간이동으로 스캔이 2.3 m 점프하면 slam_toolbox 가 매칭을 포기하고
+    # map->odom 을 옛 타임스탬프로 계속 재발행한다. TF 가 그걸 거부하면
+    # (TF_OLD_DATA) Nav2 전체가 변환을 못 얻어 목표를 포기한다 (실측 확인).
+    pause_slam_during_flight: true
+    slam_pause_service: "/slam_toolbox/pause_new_measurements"

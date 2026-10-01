@@ -61,6 +61,11 @@ except ImportError:
     SetPose = None
 
 try:
+    from slam_toolbox.srv import Pause as SlamPause
+except ImportError:
+    SlamPause = None
+
+try:
     from ros_gz_interfaces.srv import SetEntityPose
 except ImportError:          # bridge 패키지가 없으면 CLI 로 간다
     SetEntityPose = None
@@ -123,6 +128,10 @@ class ModeManager(Node):
         # 빌드 매니페스트의 C 완료 기준 "SLAM 재개" 에 해당한다.
         self.reset_loc = bool(p("reset_localization_after_flight", True).value)
         self.ekf_srv = p("ekf_set_pose_service", "/set_pose").value
+        # 비행 중 SLAM 정지 — 인터페이스 규약 ① 의 "비행 중 정지, 착륙 후 재보정"
+        self.pause_slam = bool(p("pause_slam_during_flight", True).value)
+        self.slam_srv = p("slam_pause_service",
+                          "/slam_toolbox/pause_new_measurements").value
 
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf, self)
@@ -142,6 +151,15 @@ class ModeManager(Node):
         self.get_logger().info(
             f"모드 관리자 시작 — 백엔드 {self.backend} · "
             f"도달반경 {t.arrival_radius} m · 정지판정 {t.velocity_threshold} m/s")
+        # SLAM 정지 클라이언트
+        self.slam_cli = None
+        self.slam_paused = False
+        if self.pause_slam and SlamPause is not None:
+            try:
+                self.slam_cli = self.create_client(SlamPause, self.slam_srv)
+            except Exception as e:
+                self.get_logger().warn(f"SLAM 서비스 클라이언트 생성 실패 ({e})")
+
         # EKF 재설정 클라이언트. 없으면 경고만 하고 넘어간다.
         self.ekf_cli = None
         if self.reset_loc and SetPose is not None:
@@ -397,6 +415,9 @@ class ModeManager(Node):
         self.flight_seg = seg
         self.flight_result = None
         self._limit_ground_speed(self.flight_speed_pct)
+        # 스캔이 점프하기 전에 멈춰야 한다 (위 함수 주석 참고)
+        if self.pause_slam:
+            self._set_slam_paused(True)
 
         # 백엔드는 구간 길이만큼(여기선 약 15초) 잠든다.
         # 콜백에서 그냥 부르면 노드 전체가 멈추므로 스레드로 뺀다.
@@ -421,9 +442,11 @@ class ModeManager(Node):
         self.flight_seg = None
         self.flight_result = None
 
-        # 성공이든 실패든 제한은 반드시 푼다. 안 풀면 로봇이 영영 1% 속도로
-        # 기어다니고, 원인을 찾기 어려운 상태가 된다.
+        # 성공이든 실패든 되돌린다. 안 풀면 로봇이 영영 1% 속도로 기어다니거나
+        # SLAM 이 멈춘 채로 남아, 원인을 찾기 어려운 상태가 된다.
         self._limit_ground_speed(None)
+        if not ok and self.pause_slam and self.slam_paused:
+            self._set_slam_paused(False)
 
         if not ok:
             # 실패를 성공으로 넘기지 않는다. 전환점을 그대로 두면
@@ -441,10 +464,54 @@ class ModeManager(Node):
             f"  비행 완료 → {after}  "
             f"({seg.x1:.2f}, {seg.y1:.2f}) · {seg.total_time:.1f} s")
 
-        # 위치추정을 새 자리로. 이걸 빼먹으면 TF 가 옛 자리를 가리켜
-        # Nav2 가 로봇이 안 움직였다고 믿는다 (실제로 그래서 aborted 났다).
+        # 순서가 중요하다.
+        #   1) EKF 를 착륙 지점으로 다시 맞춘다 (odom->base_footprint)
+        #   2) 그다음 SLAM 을 재개한다 — 고쳐진 자세에서 다시 매칭하게
+        # 반대로 하면 SLAM 이 옛 자세 기준으로 스캔을 받아 더 틀어진다.
         if self.reset_loc:
             self._reset_localization(seg.x1, seg.y1, seg.yaw)
+        if self.pause_slam:
+            self._set_slam_paused(False)
+
+    def _set_slam_paused(self, want: bool):
+        """SLAM 의 새 스캔 처리를 멈추거나 재개한다.
+
+        왜 필요한가 — 실측으로 확인한 것
+            set_pose 로 로봇을 2.3 m 옮기면 라이다 스캔이 그만큼 점프한다.
+            slam_toolbox 는 그걸 매칭하지 못하고 갱신을 멈추는데, 그 뒤로도
+            map->odom 을 '옛 타임스탬프 그대로' 계속 재발행한다. 그러면 TF 가
+                TF_OLD_DATA ignoring data from the past for frame odom at time 31.8
+            로 거부하고, Nav2 전체가 변환을 못 얻어 목표를 포기한다.
+
+            인터페이스 규약 ① 이 map->odom 에 "비행 중 정지, 착륙 후 재보정"
+            이라고 적어둔 게 이 상황이다.
+
+        pause_new_measurements 는 토글이라 응답의 status 로 실제 상태를 보고
+        원하는 쪽이 아니면 한 번 더 부른다.
+        """
+        if self.slam_cli is None or not self.slam_cli.service_is_ready():
+            if want:
+                self.get_logger().warn(
+                    "  SLAM 을 멈추지 못했다 — 비행 뒤 map->odom 이 옛 시각에 "
+                    "고정돼 Nav2 가 TF 를 못 얻을 수 있다")
+            return
+
+        def done(fut, target):
+            try:
+                st = bool(fut.result().status)
+            except Exception as e:
+                self.get_logger().warn(f"  SLAM 정지/재개 실패 — {type(e).__name__}: {e}")
+                return
+            self.slam_paused = st
+            if st == target:
+                self.get_logger().info(f"  SLAM {'정지' if st else '재개'}")
+            else:
+                # 토글이라 반대로 뒤집혔다. 한 번 더.
+                f2 = self.slam_cli.call_async(SlamPause.Request())
+                f2.add_done_callback(lambda f: done(f, target))
+
+        fut = self.slam_cli.call_async(SlamPause.Request())
+        fut.add_done_callback(lambda f: done(f, want))
 
     def _reset_localization(self, x: float, y: float, yaw: float):
         """비행 뒤 위치추정을 착륙 지점으로 다시 잡는다.
