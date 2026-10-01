@@ -62,6 +62,7 @@ docker exec drobot_ros2 bash -lc '
   timeout 8 ros2 topic echo /clock --once >/dev/null 2>&1; echo "clock: $?"
   timeout 8 ros2 topic echo /scan  --once --field header >/dev/null 2>&1; echo "scan:  $?"
   ros2 action list | grep navigate
+  ros2 topic info /clock | grep Publisher
 '
 ```
 
@@ -72,9 +73,11 @@ gz 토픽 32
 clock: 0
 scan:  0
 /navigate_to_pose
+Publisher count: 1
 ```
 
 `gz 토픽 0` 이면 Gazebo 가 멈춘 것이다. 4-1 참고.
+`Publisher count` 가 2 이상이면 시뮬이 두 개 떠 있는 것이다. 4-8 참고.
 
 ---
 
@@ -294,11 +297,39 @@ Nav2 가 0~255 를 0~100 으로 환산해서 rover(100)=39, fly_over(200)=77, LE
 보이고 inflation 과 구분이 안 된다. 프로브는 원본(`costmap_raw`)을 읽는다.
 
 ```bash
-python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0              # cost 등급
-python3 /app/tools/costmap_probe.py --mode elevation --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0   # 높이
+python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0              # master — 플래너는 충돌만 본다
+python3 /app/tools/costmap_probe.py --topic /global_costmap/elevation_layer_raw \
+  --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0                                                # 플래너가 읽는 지형 등급
+python3 /app/tools/costmap_probe.py --mode elevation --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0   # 높이 (m)
 ```
 
+플래너는 지형을 `elevation_layer_raw` 에서, 충돌(253·254)만 master 에서 읽는다.
+같은 칸이 master 에서는 `free` 인데 지형 격자에서는 `미관측` 일 수 있다 —
+장애물 윗면이 그렇다. 플래너는 그런 칸으로 주행은 하지만 착륙은 하지 않는다.
+
 `elevation_grid` 는 cost 가 아니라 **높이**다 (`--mode elevation`).
+
+---
+
+## 4-8. 시뮬을 두 개 띄우면 시간이 거꾸로 간다
+
+2026-10-02 에 겪었다. 헤드리스 시뮬(`sync.sh sim`)이 떠 있는 채로 GUI 런치를 하나 더
+띄웠더니 Gazebo 서버와 브리지가 둘씩 생겨 `/clock` 이 두 값을 오갔다.
+
+증상: 모든 노드가 `Detected jump back in time. Clearing TF buffer.` 를 초당 수백 번
+낸다. RViz 는 그때마다 리셋돼 **로봇 모델이 처음엔 보이다가 사라진다.**
+EKF·SLAM·Nav2 도 두 벌이라 무엇을 재든 믿을 수 없다.
+
+확인:
+
+```bash
+docker exec drobot_ros2 bash -lc 'source /opt/ros/jazzy/setup.bash; ros2 topic info /clock | grep Publisher'
+# Publisher count: 1 이어야 한다
+docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # 한 줄이어야 한다
+```
+
+화면이 필요하면 **새로 런치하지 말고 떠 있는 시뮬에 붙는다** (4-6). 처음부터 GUI 로
+띄우려면 `./sync.sh stop` 으로 끈 다음 `./sync.sh sim <world> <planner> gui`.
 
 ---
 
