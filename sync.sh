@@ -235,7 +235,7 @@ do_sim() {
   ssh "$REMOTE" "docker exec -u \$(id -u):\$(id -g) $disp drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
       nohup ros2 launch drobot_bringup navigation.launch.py \
-        world:=$world planner:=$planner energy:=$energy robot_model:=primitives $gui_args \
+        world:=$world planner:=$planner energy:=$energy robot_model:=mesh $gui_args \
         > /app/sim.log 2>&1 &
       echo \"launch 시작 — 로그: $REMOTE_DIR/sim.log\"
     '"

@@ -34,10 +34,13 @@ def launch_setup(context):
     goal_x, goal_y = 2.0, 10.0
 
     # URDF (from drobot_description)
-    # 원본 drobot.urdf.xacro 는 STL 메시를 참조하는데, 그 파일들이
-    # Git LFS 포인터만 남고 실제 데이터가 없어 Gazebo 가 로봇을 못 만든다.
-    # robot_model:=primitives 로 단순 도형 버전을 쓴다 (기본값).
-    # STL 을 되찾으면 robot_model:=mesh 로 원본을 쓰면 된다.
+    # 기본은 mesh — 원본 STL 13개가 실파일로 복구됐다 (2026-10-01 확인).
+    #
+    # 한때 STL 이 Git LFS 포인터만 남아 Gazebo 가 로봇을 못 만들어
+    # primitives(단순 도형)를 기본으로 뒀는데, 그 대체본은 치수와 원점이
+    # 잘못돼 있었다 — 본체가 바퀴보다 작고(0.128 m vs 바퀴 지름 0.212 m)
+    # 팔 충돌체가 링크 원점에서 20 cm 아래에 있었다. 보기만 이상한 게
+    # 아니라 물리도 틀렸다. primitives 는 폐기 대상이다.
     gz_gui = context.launch_configurations.get('gz_gui', 'true').lower() == 'true'
     headless_rendering = context.launch_configurations.get(
         'headless_rendering', 'true').lower() == 'true'
@@ -47,7 +50,7 @@ def launch_setup(context):
     gz_verbose = context.launch_configurations.get('gz_verbose', 'false').lower() == 'true'
     v_flag = '-v 4 ' if gz_verbose else ''
     use_rviz = context.launch_configurations.get('use_rviz', 'true').lower() == 'true'
-    robot_model = context.launch_configurations.get('robot_model', 'primitives')
+    robot_model = context.launch_configurations.get('robot_model', 'mesh')
     urdf_name = ('drobot.urdf.xacro' if robot_model == 'mesh'
                  else 'drobot_primitives.urdf.xacro')
     urdf_file = os.path.join(desc_pkg, 'urdf', urdf_name)
@@ -406,10 +409,11 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'robot_model',
-            default_value='primitives',
+            default_value='mesh',
             choices=['primitives', 'mesh'],
             description=(
-                'primitives(단순 도형, STL 불필요) 또는 mesh(원본 STL 필요)'
+                '로봇 모델: mesh(원본 STL, 기본) | primitives(폐기 대상 — 치수·원점이 '
+                '틀려 물리까지 어긋난다. urdf 파일 상단 주석 참고)'
             )
         ),
         DeclareLaunchArgument(
