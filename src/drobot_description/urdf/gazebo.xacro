@@ -151,7 +151,13 @@
 
   <!-- ========== CAMERA ========== -->
   <gazebo reference="camera_link">
-    <sensor name="camera" type="rgbd"> <gz_frame_id>camera_link_optical</gz_frame_id>
+    <!-- gz_frame_id 는 camera_link 가 맞다 (광학 프레임 아님).
+         Gazebo/ros_gz_bridge 가 내는 PointCloud2 는 이미 ROS 본체 규약이다
+         (x 전방). 실측: 센서 프레임에서 깊이 범위가 x [0.80, 9.89] 에
+         있고 z 는 [-0.39, 2.72] 로 작다. 광학이면 그 반대여야 한다.
+         한때 camera_link_optical 로 바꿨다가 점들이 +y(로봇 전방) 대신
+         +x 로 날아갔다. 2026-10-02 확인하고 되돌림. -->
+    <sensor name="camera" type="rgbd"> <gz_frame_id>camera_link</gz_frame_id>
       <update_rate>15</update_rate>
       <always_on>true</always_on>
       <visualize>true</visualize>

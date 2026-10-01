@@ -112,7 +112,11 @@
        실제로 elevation_layer 가 빈 바닥 전 구간을 0.25 m(= base_link 높이)로
        보고 0.5 m 장애물은 전혀 못 봤다. 2026-10-02 확인.
 
-       gazebo.xacro 의 gz_frame_id 가 이 프레임을 가리킨다. -->
+       주의: gazebo.xacro 의 gz_frame_id 는 camera_link 를 쓴다.
+       Gazebo 가 내는 PointCloud2 는 이미 x 전방 규약이라
+       이 프레임을 가리키면 90도 회전이 두 번 들어가 점이 엉뚱한
+       방향으로 날아간다 (실측 확인). 이 링크는 다른 도구와의
+       호환을 위해 선언만 해 둔다. -->
   <link name="camera_link_optical"/>
   <joint name="camera_optical_joint" type="fixed">
     <origin xyz="0 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
