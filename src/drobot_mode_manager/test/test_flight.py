@@ -87,17 +87,21 @@ def test_quaternion_from_yaw():
     assert abs(qz - 0.70711) < 1e-4 and abs(qw - 0.70711) < 1e-4
 
 
-def test_hop_calls_set_pose_twice():
-    """hop 은 '순항 끝' 과 '착륙 완료' 두 자리만 보낸다."""
+def test_hop_moves_once_at_the_end():
+    """hop 은 비행 시간을 기다린 뒤 착륙점으로 한 번만 옮긴다.
+
+    중간에 공중으로 올려두면 Nav2 가 "로봇이 지도 밖 허공에 있다" 는
+    상태로 돌아가다 0.3초 만에 죽는다 (backends.py 주석 참고).
+    자세 변경이 한 번이어야 그 모순 구간이 없다.
+    """
     sent, slept = [], []
     be = GazeboBackend(lambda p: (sent.append(p), True)[1], style="hop")
     assert be.execute(SEG, FakeLog(), slept.append)
 
-    assert len(sent) == 2
-    assert abs(sent[0].z - 0.8) < 1e-6                  # 아직 공중
-    assert abs(sent[1].z) < 1e-6                        # 지면
-    assert abs(sent[1].x - 1.33) < 1e-6 and abs(sent[1].y - 4.53) < 1e-6
-    # 대기 시간 합이 구간 총 시간과 같아야 한다
+    assert len(sent) == 1, "자세를 두 번 이상 바꾸면 안 된다"
+    assert abs(sent[0].z) < 1e-6                        # 지면에 내려놓는다
+    assert abs(sent[0].x - 1.33) < 1e-6 and abs(sent[0].y - 4.53) < 1e-6
+    # 대기 시간 합이 구간 총 시간과 같아야 한다 (에너지·시간 집계가 이걸 쓴다)
     assert abs(sum(slept) - SEG.total_time) < 1e-6
 
 

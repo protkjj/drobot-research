@@ -88,14 +88,28 @@ class GazeboBackend(Backend):
                  f"거리 {seg.distance:.2f} m · {seg.total_time:.1f} s")
 
         if self.style == "hop":
-            # 이륙 대기 -> 착륙점(공중) -> 순항 대기 -> 지면
-            sleep(seg.takeoff_time)
-            if not self._put(pose_at(seg, seg.takeoff_time + seg.cruise_time), log):
-                return False
-            sleep(seg.cruise_time)
+            # 비행 시간만큼 이륙점에 그대로 두고, 끝에 한 번만 착륙점으로 옮긴다.
+            #
+            # 왜 중간에 공중으로 올리지 않나 — 실측으로 확인한 것
+            #   예전에는 이륙 대기 뒤 로봇을 공중(z=0.8)으로 옮기고 순항
+            #   시간만큼 거기 뒀다. 그러면 Nav2 가 "로봇이 지도 밖 허공에
+            #   있다" 는 상태로 돌아간다. 0.3초 만에 이렇게 죽었다:
+            #     controller: Could not find a legal trajectory: No valid
+            #                 trajectories out of 819!
+            #     behavior:   Running backup -> Pose Goes Off Grid -> backup failed
+            #     bt:         Goal failed
+            #     local_costmap: Sensor origin at (2.13, 1.42) is out of map
+            #                    bounds (0.15, 2.10) to (4.12, 6.08)
+            #   costmap 창은 새 위치를 따라갔는데 센서 원점은 옛 위치라
+            #   내부 상태가 모순이 된 것이다.
+            #
+            #   자세를 한 번만 바꾸면 그 모순 구간이 사라진다. 그 직후
+            #   호출자가 EKF 를 다시 맞추고 SLAM 을 재개한다.
+            #   보기에는 순간이동이지만, 소요 시간과 도착 위치라는
+            #   '실험에 쓰는 값' 은 같다. animate 는 연속으로 옮긴다.
+            sleep(seg.total_time)
             if not self._put(pose_at(seg, seg.total_time), log):
                 return False
-            sleep(seg.landing_time)
             return True
 
         poses = sample(seg, self.dt)
