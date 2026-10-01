@@ -159,6 +159,8 @@ roll                         1.17°              1.22° (0.0213 rad)
 | | primitives 는 폐기 대상이라 값은 두고 같은 결함(+0.205 m)만 상단에 명시 |
 | `fd0b127` | `tools/costmap_probe.py` — 환산 토픽 대신 `costmap_raw` 를 읽게 (3절 B 참고) |
 | `5ad328f` | `costmap_probe` elevation 모드가 `…/elevation_grid` 토픽을 찾아 쓰게 (실제 이름 `/global_costmap/elevation_layer/elevation_grid`) |
+| `cf1369a` | ElevationLayer 자체 격자의 미관측 칸을 NO_INFORMATION 으로 명시 (전에는 미정의 값) |
+| `4d0445c` | 플래너 (b-0): 지형은 ElevationLayer 에서, 충돌은 master 에서. 착륙은 관측 칸에만 (3절 B) |
 
 영향 검토 (코드로 확인)
 
@@ -184,18 +186,25 @@ python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0
                              # 빈 바닥 free          (전: fly_over 로 예상)
 ```
 
-넷 다 맞으면 integration 에 병합하고 push.
+넷 다 맞으면 시뮬을 끄고 플래너 테스트를 돌린다 (`test` 는 시뮬을 자동으로 끈다).
+
+```bash
+./sync.sh test        # 빌드 + colcon test. LayerTerrainTest 5개 포함, 실패 0 이어야 함
+```
+
+다 통과하면 integration 에 병합하고 push.
 
 ### 이것으로 안 풀리는 것 — 별개 문제
 
 - **장애물 윗면은 여전히 미관측이고, 그게 free 로 보인다.** 카메라는 물리적으로 0.36 m 라
   0.5 m 장애물 위를 못 본다. ElevationLayer 는 미관측 셀을 건너뛰고(`elevation_layer.cpp:469`)
   `track_unknown_space: false`(`nav2_params_hybrid.yaml:216`) 라 master 기본값 free(0) 가 남는다.
-  → 장애물 윗면이 "착륙 가능한 평지" 로 보인다. **"착륙점이 장애물 한가운데" 는 이 수정 후에도 남을 것으로 예상.**
-  대응 후보: `track_unknown_space: true` + B 쪽 착륙 판정을 "관측된 free 만" 으로 분리
-  (주행은 낙관, 착륙은 보수). 또는 카메라 위치를 올리는 것 (하드웨어 결정).
-- **플래너가 inflation 값을 지형 등급으로 읽는다** — 3절 B 참고
-- 착륙 waypoint z 가 지형높이 무시 (`hybrid_astar_planner.cpp:294`, B)
+  → 장애물 윗면이 "착륙 가능한 평지" 로 보인다. 바닥 수정만으로는 "착륙점이 장애물 한가운데" 가 남는다.
+  **→ 플래너에서 착륙만 관측 칸으로 제한했다** (`land_only_on_observed`, `4d0445c`). 주행은 그대로 낙관.
+  `track_unknown_space` 는 false 그대로. 카메라 위치를 올리는 건 별개의 하드웨어 결정.
+- **플래너가 inflation 값을 지형 등급으로 읽는다** — **수정함** (`4d0445c`, 3절 B 참고)
+- 착륙 waypoint z 가 지형높이 무시 (`hybrid_astar_planner.cpp:294`) — **고치지 않음.**
+  착륙 오판의 원인은 이 줄이 아니라 미관측 → free 였다. z=0 은 플래너가 믿는 지형과 일치한다
 
 ---
 
@@ -240,7 +249,10 @@ fly_over 로 보이던 상태라 플래너는 어디서든 날 이유가 있었�
                                  그 자리는 장애물 윗면 = 미관측 = free(0) 로 보이는 곳 (2절 끝)
 ```
 
-**새로 — `CostmapTerrainSource` 가 inflation 값을 지형 등급으로 읽는다** (코드로 확인, 시뮬 실측 전)
+**새로 — `CostmapTerrainSource` 가 inflation 값을 지형 등급으로 읽는다 → 수정함** (`4d0445c`, 테스트 대기)
+
+B 에게: kj 승인으로 플래너 코드를 고쳤다. `COST_HEIGHT_CONTRACT.md` 의 권고 (b-0) 를 그대로
+구현했고, 상단에 갱신 내용과 문서 정정 두 가지를 적었다. 진행 중인 작업과 겹치면 알려 줄 것.
 
 `state_space.cpp:39-46` 이 inflation 이 섞인 master costmap 의 cost 를
 `≤50 free · ≤150 rover · ≤253 fly_over` 로 읽는다. global costmap 설정
@@ -248,8 +260,9 @@ fly_over 로 보이던 상태라 플래너는 어디서든 날 이유가 있었�
 Nav2 inflation 공식을 넣으면:
 
 ```
-LETHAL 셀로부터   0 ~ 0.48 m   cost 253~151  ->  fly_over  (주행 불가, 날아야 함)
-                 0.48 ~ 1.0 m  cost 150~51   ->  rover     (0.15 m 지형)
+LETHAL 셀로부터   0 ~ 0.45 m   cost 253~151  ->  fly_over  (주행 불가, 날아야 함)
+                 0.50 ~ 1.0 m  cost 150~51   ->  rover     (0.15 m 지형)
+                 (칸 중심 거리, 계약 문서가 실제 InflationLayer 로 잰 값. 공식 손계산은 0.48)
                  1.0 m ~                       free
 ```
 
@@ -258,9 +271,19 @@ LETHAL 셀로부터   0 ~ 0.48 m   cost 253~151  ->  fly_over  (주행 불가, �
 0.16 m 로 기록하고(`elevation_layer.cpp:306-308`) 관측 셀을 자기 등급으로 덮어쓰므로
 (`:474-478`), 라이다만 본 셀과 1.2 m 이하 장애물은 200 이 되어 inflation 이 안 붙는다.
 
-방향 제안 (결정은 B): 지형 등급은 inflation **전** 값으로 읽어야 한다. 예) 플래너가
-ElevationLayer 의 등급 격자를 직접 읽거나, 플래너가 쓰는 costmap 에서 inflation 을 빼고
-안전거리는 플래너 안에서 처리.
+적용한 방식 (`LayerTerrainSource`, state_space.hpp)
+
+```
+지형 높이·등급   ElevationLayer 자체 격자 (inflation 전 값)    미관측은 평지 (주행 낙관)
+충돌            master 가 253·254 면 어느 modal 이든 못 선다    master 254 는 비행도 막는다
+착륙            관측된 칸에만 (land_only_on_observed: true)
+대비책          레이어를 못 찾으면 예전 방식 + 경고
+```
+
+남은 한계: 등급 대표 높이(fly_over = 0.60 m 하나)가 실제 높이를 가리는 문제
+(계약 문서 4절)는 그대로다. 그건 (b-1) — 레이어의 실제 높이를 읽는 단계다.
+또 비행 고도 후보(`buildAirLevels`)는 configure 때 한 번만 만든다. 지금은 대표 높이가
+0.60 하나라 0.8 m 하나로 충분하지만, (b-1) 에서 실제 높이를 쓰면 다시 봐야 한다.
 
 **실측 도구 주의**: `/global_costmap/costmap` 토픽은 Nav2 가 0~100 으로 환산해서
 rover=39, fly_over=77, LETHAL=100 으로 보인다. 지형과 inflation 을 구분할 수 없다.
@@ -274,8 +297,9 @@ angular_dist_threshold: 0.1 은 5.7° 인데 주석은 45° (Nav2 기본 0.785)
   파라미터 파일 3개 전부. 회전만 비율이 높은 것과 관련 있을 수 있다 — 미확인
 규약은 TF 를 base_link 로 정했는데 실제는 base_footprint
   fix/floor-offset 이후 둘은 같은 자리다 (항등 변환). 문서만 맞추면 된다
-track_unknown_space: false — 미관측을 free 로 봐서 장애물 윗면이 착륙 가능으로 보인다 (2절 끝)
-  true 로 하면 전역 경로가 막힐 수 있다. "주행은 낙관, 착륙은 보수" 로 나눌지 정할 것
+track_unknown_space: false — 미관측을 free 로 봐서 장애물 윗면이 착륙 가능으로 보였다 (2절 끝)
+  플래너에서 "주행은 낙관, 착륙은 보수" 로 나눴다 (land_only_on_observed). false 는 유지.
+  대가: 카메라(0.36 m)가 못 보는 장애물 뒤에는 착륙할 수 없으니, 그런 곳은 우회해야 한다
 월드 이름에 '.' 이 들어가 ROS 서비스 경로로 못 쓴다 (base_map_h0.5)
   mode_manager 가 gz CLI 로 떨어지는 이유. 이름을 바꾸거나 리맵이 필요
 ```

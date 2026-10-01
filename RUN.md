@@ -307,11 +307,11 @@ python3 /app/tools/costmap_probe.py --mode elevation --x0 2.12 --y0 1.5 --x1 2.1
 | 트랙 | 문제 | 상태 |
 |---|---|---|
 | A | 빈 바닥이 0.25 m 로 측정돼 fly_over 로 분류됨 — URDF `base_footprint_joint` z=0.25 가 원인 (gz 실측 z=-0.2518) | `fix/floor-offset` 에서 수정, 시뮬 재측정 대기 |
-| 공동 | 카메라(실제 0.36 m)가 0.5 m 장애물 윗면을 못 봄 → 미관측 → `track_unknown_space: false` 라 free → 착륙 가능으로 보임 | 미결정 (위 수정으로 안 풀림) |
-| B | 플래너(`CostmapTerrainSource`)가 inflation 값을 지형 등급으로 읽음 — 벽에서 0.48 m 이내가 fly_over 로 읽힘 | 코드로 확인, 실측 전 |
+| 공동 | 카메라(실제 0.36 m)가 0.5 m 장애물 윗면을 못 봄 → 미관측 → `track_unknown_space: false` 라 free → 착륙 가능으로 보임 | 플래너에서 착륙만 관측 칸으로 제한 (`fix/floor-offset`), 테스트 대기 |
+| B | 플래너가 inflation 값을 지형 등급으로 읽음 — 벽에서 0.45 m 이내가 fly_over 로 읽힘 | 수정 — 지형은 ElevationLayer 에서 읽음 (`fix/floor-offset`), 테스트 대기 |
 | B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
 | B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
-| B | 착륙점이 장애물 한가운데로 잡힌다 (지상 waypoint z 가 지형높이 무시) | 수정 중 |
+| B | 착륙점이 장애물 한가운데로 잡힌다 | 원인은 미관측 → free. 위 착륙 제한으로 대응, 재측정 필요 |
 | A | 런치로 띄울 때만 ogre 초기화가 불안정한 근본 원인 (회피책은 적용됨) | 미규명 |
 | 공동 | `angular_dist_threshold: 0.1` 은 5.7° 인데 주석은 45° (Nav2 기본 0.785) | 미결정 |
 | 공동 | 규약은 TF 를 `base_link` 로 정했는데 실제는 `base_footprint` (바닥 수정 후 둘은 같은 자리) | 문서만 맞추면 됨 |
