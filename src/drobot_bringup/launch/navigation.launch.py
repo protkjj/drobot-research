@@ -49,6 +49,17 @@ def launch_setup(context):
     # 막혔는지는 이것 없이는 안 보인다 (기본 출력은 Msg 수준뿐).
     gz_verbose = context.launch_configurations.get('gz_verbose', 'false').lower() == 'true'
     v_flag = '-v 4 ' if gz_verbose else ''
+    # Gazebo 가 렌더 컨텍스트를 세울 동안 다른 노드를 띄우지 않는다.
+    #
+    # 왜: 로봇이 스폰되면 Sensors 시스템이 ogre 렌더 컨텍스트를 만든다.
+    # 런치는 노드 13개를 동시에 올리는데, 그 부하 중에 초기화가 끝나지
+    # 못하고 멈추는 일이 잦았다 (/clock 부터 모든 토픽이 0).
+    # 같은 조건을 수동으로(프로세스 1~2개) 돌리면 매번 성공한다.
+    # 2026-10-01 진단.
+    try:
+        startup_delay = float(context.launch_configurations.get('startup_delay', '8.0'))
+    except ValueError:
+        startup_delay = 8.0
     use_rviz = context.launch_configurations.get('use_rviz', 'true').lower() == 'true'
     robot_model = context.launch_configurations.get('robot_model', 'mesh')
     urdf_name = ('drobot.urdf.xacro' if robot_model == 'mesh'
@@ -338,7 +349,7 @@ def launch_setup(context):
 
     # After 5s: unpause Gazebo (Gazebo는 -r로 이미 실행 중이라 사실상 no-op이지만 안전망)
     unpause = TimerAction(
-        period=5.0,
+        period=startup_delay + 5.0,
         actions=[
             ExecuteProcess(
                 cmd=['gz', 'service', '-s', f'/world/{gz_world_name}/control',
@@ -354,7 +365,7 @@ def launch_setup(context):
     # 물리/EKF 안정화 후 SLAM + Nav2를 일괄 기동.
     # 초기 사선 인식 / drift로 인한 길찾기 실패 방지 (5초간 EKF가 정지 odom + IMU bias 수렴).
     delayed_navigation = TimerAction(
-        period=5.0,
+        period=startup_delay + 5.0,
         actions=[
             slam_node,
             slam_lifecycle,
@@ -373,14 +384,16 @@ def launch_setup(context):
         # Simulation
         robot_state_publisher,
         gazebo,
-        spawn_robot,
-        ros_gz_bridge,
+        # Gazebo 가 자리잡은 뒤에 로봇과 브리지를 올린다 (위 주석 참고)
+        # Gazebo 가 렌더 컨텍스트를 세울 동안은 아무것도 더 올리지 않는다.
+        # EKF 도 여기 넣는다 — 브리지의 /odom 이 있어야 의미가 있고,
+        # 그 전에 띄우면 Gazebo 초기화 때 CPU 만 뺏는다.
+        TimerAction(period=startup_delay,
+                    actions=[spawn_robot, ros_gz_bridge, ekf_node,
+                             start_goal_markers]),
         unpause,
         rviz2,
-        start_goal_markers,
-        # Localization (즉시 — odom/IMU 융합은 일찍 시작해야 SLAM 시작 시점에 안정)
-        ekf_node,
-        # SLAM + Navigation (5초 지연)
+        # SLAM + Navigation (Gazebo 안정화 + 5초)
         delayed_navigation,
     ]
 
@@ -430,6 +443,15 @@ def generate_launch_description():
             default_value='default',
             description="에너지 파라미터 세트: default | derived "
                         "(proposed 플래너에서만 의미 있음)",
+        ),
+        DeclareLaunchArgument(
+            'startup_delay',
+            default_value='8.0',
+            description=(
+                'Gazebo 가 뜨고 나서 로봇 스폰·브리지·Nav2 를 올리기까지 기다리는 초. '
+                '동시에 올리면 Sensors 의 렌더 컨텍스트 초기화가 부하에 밀려 '
+                '시뮬 루프가 멈추는 일이 있었다. 0 으로 두면 예전 동작.'
+            ),
         ),
         DeclareLaunchArgument(
             'gz_verbose',
