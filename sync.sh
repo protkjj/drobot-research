@@ -51,11 +51,16 @@ RSYNC_OPTS=(
   --exclude='.DS_Store' --exclude='.vscode'
   --exclude='benchmark/results/*.json'   # 용량 큰 원자료는 로컬에만
   # Git LFS 자산은 원격에서만 받는다 (git lfs pull).
-  # 로컬은 포인터(130B) 상태라 동기화하면 원격의 실제 파일을 덮어써 버린다.
+  # 로컬이 포인터(130B) 상태면 동기화할 때 원격의 실제 파일을 덮어써 버린다.
   # 실제로 이것 때문에 Gazebo 가 "Error parsing XML" 로 죽었다.
-  --exclude='src/drobot_description/worlds/'
   --exclude='src/drobot_description/models/'
   --exclude='src/drobot_description/meshes/'
+  #
+  # worlds/ 는 제외하지 않는다 (2026-10-01).
+  #   월드는 git 에 실파일로 들어 있고(5~14KB) 자주 고친다. 제외해 두면
+  #   맥북에서 월드를 고쳐 푸시해도 원격에 반영되지 않아, 고친 걸 시험한 게
+  #   아닌데 "안 고쳐졌다" 고 판단하게 된다. 실제로 ogre2 수정이 그렇게 묻혔다.
+  #   대신 아래 check_lfs_pointers() 가 포인터 상태면 동기화를 막는다.
 )
 
 # 빌드 대상. C++ 는 컴파일이 필요하고, Python 패키지도 한 번은 빌드해야
@@ -69,7 +74,28 @@ PKGS="drobot_msgs drobot_hybrid_planner drobot_costmap_2_5d \
 drobot_mode_manager drobot_experiments drobot_energy_model \
 drobot_bringup drobot_description"
 
+check_lfs_pointers() {
+  # LFS 포인터를 원격으로 밀면 원격의 실제 파일이 날아간다.
+  # 동기화 대상 중 포인터가 섞여 있으면 멈춘다.
+  local found=0
+  while IFS= read -r f; do
+    if head -c 40 "$f" 2>/dev/null | grep -q "version https://git-lfs"; then
+      echo "오류: LFS 포인터 상태의 파일이 있다 — $f" >&2
+      found=1
+    fi
+  done < <(find "$LOCAL_DIR/src/drobot_description/worlds" -name '*.sdf' 2>/dev/null)
+
+  if [ "$found" != 0 ]; then
+    echo "" >&2
+    echo "동기화하면 원격의 실제 월드 파일을 포인터로 덮어쓴다. 먼저 받아올 것:" >&2
+    echo "  git lfs pull" >&2
+    return 1
+  fi
+  return 0
+}
+
 do_sync() {
+  check_lfs_pointers || return 1
   echo "==> 동기화: $LOCAL_DIR -> $REMOTE:$REMOTE_DIR"
   rsync "${RSYNC_OPTS[@]}" "$LOCAL_DIR" "$REMOTE:$REMOTE_DIR"
 }
