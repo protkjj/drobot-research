@@ -41,6 +41,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.time import Time
 
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.msg import SpeedLimit
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState
@@ -53,6 +54,11 @@ from drobot_msgs.msg import ModeSwitchPlan
 from drobot_mode_manager.backends import cli_sender, make_backend
 from drobot_mode_manager.flight_profile import FlightSegment, Pose
 from drobot_mode_manager.switch_tracker import GROUND, SwitchPoint, SwitchTracker
+
+try:
+    from robot_localization.srv import SetPose
+except ImportError:
+    SetPose = None
 
 try:
     from ros_gz_interfaces.srv import SetEntityPose
@@ -113,6 +119,10 @@ class ModeManager(Node):
         # Nav2 에서 speed_limit 0.0 은 NO_SPEED_LIMIT, 즉 '제한 해제' 다.
         self.flight_speed_pct = float(p("flight_speed_limit_pct", 1.0).value)
         self.speed_topic = p("speed_limit_topic", "/speed_limit").value
+        # 비행 뒤 위치추정을 새 자리로 다시 잡는다.
+        # 빌드 매니페스트의 C 완료 기준 "SLAM 재개" 에 해당한다.
+        self.reset_loc = bool(p("reset_localization_after_flight", True).value)
+        self.ekf_srv = p("ekf_set_pose_service", "/set_pose").value
 
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf, self)
@@ -132,6 +142,14 @@ class ModeManager(Node):
         self.get_logger().info(
             f"모드 관리자 시작 — 백엔드 {self.backend} · "
             f"도달반경 {t.arrival_radius} m · 정지판정 {t.velocity_threshold} m/s")
+        # EKF 재설정 클라이언트. 없으면 경고만 하고 넘어간다.
+        self.ekf_cli = None
+        if self.reset_loc and SetPose is not None:
+            try:
+                self.ekf_cli = self.create_client(SetPose, self.ekf_srv)
+            except Exception as e:
+                self.get_logger().warn(f"EKF 서비스 클라이언트 생성 실패 ({e})")
+
         self._check_ssot()
         self._setup_backend()
         # 비행 스레드 결과를 메인 스레드에서 회수한다 (tracker 를 한 쪽에서만 건드리려고)
@@ -421,8 +439,63 @@ class ModeManager(Node):
         after = self.tracker.complete(self._now())
         self.get_logger().info(
             f"  비행 완료 → {after}  "
-            f"({seg.x1:.2f}, {seg.y1:.2f}) · {seg.total_time:.1f} s "
-            f"— 착륙 판정은 다음 odom 에서")
+            f"({seg.x1:.2f}, {seg.y1:.2f}) · {seg.total_time:.1f} s")
+
+        # 위치추정을 새 자리로. 이걸 빼먹으면 TF 가 옛 자리를 가리켜
+        # Nav2 가 로봇이 안 움직였다고 믿는다 (실제로 그래서 aborted 났다).
+        if self.reset_loc:
+            self._reset_localization(seg.x1, seg.y1, seg.yaw)
+
+    def _reset_localization(self, x: float, y: float, yaw: float):
+        """비행 뒤 위치추정을 착륙 지점으로 다시 잡는다.
+
+        왜 필요한가 — 실제로 겪은 것
+            set_pose 로 로봇을 옮기면 Gazebo 모델은 새 자리로 가는데,
+            EKF 는 따라오지 못한다. 순간이동은 IMU 에 아무 가속도도 남기지
+            않아서, EKF 입장에서는 말이 안 되는 점프로 보이기 때문이다.
+            그 결과 TF 가 옛 자리를 가리키고(RViz 에서 로봇이 벽에 박힌 채로
+            보인다), Nav2 는 로봇이 아직 거기 있다고 믿고 계속 몰아붙이다
+            목표를 포기한다.
+
+            빌드 매니페스트의 C 완료 기준 "SLAM 재개" 가 이 단계다.
+
+        한계
+            EKF 만 다시 잡는다. slam_toolbox 의 map->odom 은 그대로라
+            지도 기준 위치에 오차가 남을 수 있다. 실물(PX4)에서는 비행 중
+            SLAM 을 멈췄다가 착륙 후 재보정하는 게 규약(인터페이스 규약 ①)
+            이므로, 그때 같이 처리해야 한다.
+        """
+        if self.ekf_cli is None:
+            self.get_logger().warn(
+                "  위치추정을 다시 잡지 못했다 — robot_localization 서비스 없음. "
+                "TF 가 옛 자리를 가리켜 Nav2 가 헤맬 수 있다")
+            return
+        if not self.ekf_cli.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn(f"  {self.ekf_srv} 응답 없음 — 위치추정 재설정 생략")
+            return
+
+        req = SetPose.Request()
+        msg = PoseWithCovarianceStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.map_frame
+        msg.pose.pose.position.x = float(x)
+        msg.pose.pose.position.y = float(y)
+        msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+        # 공분산 대각만 채운다. 착륙 지점은 계획이 지정한 좌표라
+        # 꽤 믿을 만하지만, 운동학 재생이라 완전히 확신하지는 않는다.
+        for i, v in ((0, 0.05), (7, 0.05), (35, 0.05)):   # x, y, yaw
+            msg.pose.covariance[i] = v
+        req.pose = msg
+
+        fut = self.ekf_cli.call_async(req)
+        t0 = time.time()
+        while not fut.done() and time.time() - t0 < 2.0:
+            time.sleep(0.01)
+        if fut.done():
+            self.get_logger().info(f"  위치추정 재설정 → ({x:.2f}, {y:.2f})")
+        else:
+            self.get_logger().warn("  위치추정 재설정 응답 없음")
 
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds * 1e-9

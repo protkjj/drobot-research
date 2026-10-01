@@ -69,3 +69,10 @@ mode_manager:
     # ⚠ 0 은 쓰면 안 된다 — Nav2 에서 speed_limit 0.0 은 '제한 해제' 다.
     flight_speed_limit_pct: 1.0   # % of max
     speed_limit_topic: "/speed_limit"
+
+    # ===== 비행 뒤 위치추정 재설정 ("SLAM 재개") =====
+    # set_pose 로 로봇을 옮기면 EKF 가 따라오지 못한다 — 순간이동은 IMU 에
+    # 가속도를 남기지 않아 EKF 가 걸러낸다. 그러면 TF 가 옛 자리를 가리키고
+    # Nav2 가 로봇이 안 움직였다고 믿어 목표를 포기한다 (실측 확인).
+    reset_localization_after_flight: true
+    ekf_set_pose_service: "/set_pose"
