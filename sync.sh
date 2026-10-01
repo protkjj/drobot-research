@@ -58,7 +58,11 @@ RSYNC_OPTS=(
   --exclude='src/drobot_description/meshes/'
 )
 
-PKGS="drobot_msgs drobot_hybrid_planner drobot_costmap_2_5d"
+# 빌드 대상. C++ 는 컴파일이 필요하고, Python 패키지도 한 번은 빌드해야
+# setup.py 의 entry_points 가 등록돼 ros2 run 으로 불린다
+# (--symlink-install 이라 이후 코드 수정은 재빌드 없이 반영된다).
+PKGS="drobot_msgs drobot_hybrid_planner drobot_costmap_2_5d \
+drobot_mode_manager drobot_experiments drobot_energy_model"
 
 do_sync() {
   echo "==> 동기화: $LOCAL_DIR -> $REMOTE:$REMOTE_DIR"
