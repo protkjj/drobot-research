@@ -11,6 +11,7 @@
 받는 것
     /plan                 플래너가 낸 계획 경로 (nav_msgs/Path)
     /mode_switch_points   이·착륙 지점 (drobot_msgs/ModeSwitchPlan)  ← 우리 기여
+    /mode_state           mode_manager 가 실제로 수행한 상태 (std_msgs/String)
     /odom                 실제 주행 궤적 (nav_msgs/Odometry)
     /cmd_vel              컨트롤러가 낸 속도 명령 (geometry_msgs/Twist)
 
@@ -37,6 +38,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 
 from geometry_msgs.msg import PoseStamped, Twist
+from std_msgs.msg import String
 from nav_msgs.msg import Odometry, Path
 from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
@@ -86,7 +88,11 @@ class Recorder(Node):
         self.plan = []            # 플래너가 낸 마지막 계획
         self.plan_history = 0     # 재계획 횟수 — 몇 번 다시 짰는지
         self.odom = []            # 실제 주행 궤적 [(t, x, y, yaw)]
-        self.switches = []        # 이·착륙 지점
+        self.switches = []        # 마지막으로 받은 '비어 있지 않은' 전환 계획
+        self.n_plans = 0          # 받은 전환 계획 수
+        self.n_plans_switch = 0   # 그중 전환점이 있던 것
+        self.mode_timeline = []   # [(t, 상태)] — 실제로 수행된 전이
+        self.mode_now = None
         self.cmd = []             # 컨트롤러 명령 [(t, vx, wz)]
         self.t_goal = None        # 목표를 보낸 시각
         self.planner_time = None  # 목표 -> 첫 계획까지 걸린 시간
@@ -97,6 +103,8 @@ class Recorder(Node):
         self.create_subscription(Path, "/plan", self._on_plan, 10)
         self.create_subscription(Odometry, "/odom", self._on_odom, 20)
         self.create_subscription(Twist, "/cmd_vel", self._on_cmd, 20)
+        # mode_manager 가 실제로 뭘 했는지. 계획과 실행은 다를 수 있다.
+        self.create_subscription(String, "/mode_state", self._on_mode, 10)
         if ModeSwitchPlan is not None:
             self.create_subscription(ModeSwitchPlan, "/mode_switch_points",
                                      self._on_switch, LATCHED)
@@ -132,7 +140,25 @@ class Recorder(Node):
         self.cmd.append((round(time.time() - self.t0, 3),
                          round(msg.linear.x, 4), round(msg.angular.z, 4)))
 
+    def _on_mode(self, msg: String):
+        """mode_manager 의 상태 전이를 기록한다.
+
+        왜 필요한가: 계획(/mode_switch_points)과 실행은 다르다. 계획에
+        전환점이 있어도 실행이 안 될 수 있고, 반대로 실행이 끝난 뒤
+        계획이 비어 올 수도 있다. 실제로 몇 번 전환했는지는 이쪽이 진실이다.
+        """
+        if msg.data != self.mode_now:
+            self.mode_timeline.append((round(time.time() - self.t0, 3), msg.data))
+            self.mode_now = msg.data
+
     def _on_switch(self, msg):
+        self.n_plans += 1
+        if not msg.switch_points:
+            # 빈 계획으로 덮지 않는다. Nav2 가 재계획하면서 마지막에 전환점
+            # 없는 계획을 내면, 그걸 저장해 "비행을 안 썼다" 로 기록된다.
+            # 실제로 비행을 하고도 0 회로 적힌 적이 있다.
+            return
+        self.n_plans_switch += 1
         self.switches = [{
             "x": s.position.x, "y": s.position.y,
             "altitude": s.flight_altitude,
@@ -200,6 +226,9 @@ class Recorder(Node):
             "odom": self.odom,
             "cmd_vel": self.cmd,
             "mode_switches": self.switches,
+            "n_plans": self.n_plans,
+            "n_plans_with_switches": self.n_plans_switch,
+            "mode_timeline": self.mode_timeline,
             "duration_s": round(time.time() - self.t0, 2),
             "planner_time_s": (round(self.planner_time, 3)
                                if self.planner_time is not None else None),
@@ -216,7 +245,15 @@ class Recorder(Node):
             vmax = max(abs(v) for _, v, _ in self.cmd)
             print(f"  속도 명령 {len(self.cmd)}개 · 최대 전진 {vmax:.3f} m/s · "
                   f"회전만 {100*spin/len(self.cmd):.0f}% · 정지 {100*still/len(self.cmd):.0f}%")
-        print(f"  모드 전환 {len(self.switches)}회  <- 0 이면 비행을 안 썼다는 뜻")
+        # 계획과 실행을 따로 적는다 — 둘이 다를 수 있다
+        takeoffs = sum(1 for _, m in self.mode_timeline if m == "TAKING_OFF")
+        print(f"  전환 계획 {len(self.switches)}점 "
+              f"(계획 {self.n_plans}건 중 {self.n_plans_switch}건에 전환점 있음)")
+        if self.mode_timeline:
+            print(f"  실제 수행 이륙 {takeoffs}회 · 상태 전이 "
+                  f"{' -> '.join(m for _, m in self.mode_timeline)}")
+        else:
+            print("  실제 수행 — /mode_state 를 못 받음 (mode_manager 가 떠 있었나?)")
         print(f"  결과 {self.result}")
 
 

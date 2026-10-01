@@ -68,6 +68,14 @@ def summarize(run: dict, planner: str, trial_id: int) -> dict:
     # 비행 에너지는 플래너의 '예상값' 이다. 실측(INA226)이 아니다.
     flight_wh = sum(s.get("energy_wh", 0.0) for s in switches)
 
+    # num_switches 는 '계획' 이 아니라 '실제로 수행한 횟수' 다.
+    # 둘이 다를 수 있다 — 계획에 전환점이 있어도 로봇이 거기까지 못 가면
+    # 실행은 0 이고, 반대로 실행한 뒤 빈 계획이 와서 덮일 수도 있다.
+    # mode_manager 가 내는 /mode_state 전이가 진실이다. 없으면 계획으로 떨어진다.
+    timeline = run.get("mode_timeline") or []
+    executed = sum(1 for _, m in timeline if m == "TAKING_OFF")
+    n_switch = executed if timeline else len(switches)
+
     return {
         "trial_id": trial_id,
         "world": run.get("world", ""),
@@ -76,7 +84,7 @@ def summarize(run: dict, planner: str, trial_id: int) -> dict:
         "total_energy_wh": UNKNOWN,
         "total_time_s": round(float(run.get("duration_s", 0.0)), 2),
         "total_distance_m": round(path_length(run.get("odom", [])), 3),
-        "num_switches": len(switches),
+        "num_switches": n_switch,
         # 완료 != 성공. record_run 이 GoalStatus 로 판정한 값만 믿는다.
         "success": run.get("result") == "succeeded",
         "flight_energy_wh": round(flight_wh, 3) if switches else 0.0,
