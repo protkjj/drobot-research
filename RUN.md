@@ -228,16 +228,19 @@ docker exec -it -e DISPLAY=:0 drobot_ros2 bash -lc '
 ```bash
 docker exec -it -e DISPLAY=:0 drobot_ros2 bash -lc '
   source /opt/ros/jazzy/setup.bash && source /app/install/setup.bash
-  rviz2 -d /app/src/drobot_bringup/config/navigation/display.rviz
+  rviz2 -d /app/src/drobot_bringup/config/navigation/display.rviz --ros-args -p use_sim_time:=true
 '
 ```
 
 보이는 것: RobotModel · LaserScan · Map · Path · TF · MarkerArray(시작/목표)
 
+`use_sim_time:=true` 를 빼면 안 된다. TF 는 시뮬 시각으로 찍히는데 RViz 가 벽시계로
+찾아서 로봇 모델이 '변환 없음' 으로 나온다 (런치는 이 값을 넘기지만 따로 붙일 때는 직접 줘야 한다).
+
 경로 비교만 볼 때는 전용 설정이 있다.
 
 ```bash
-  rviz2 -d /app/src/drobot_bringup/config/navigation/paths_view.rviz
+  rviz2 -d /app/src/drobot_bringup/config/navigation/paths_view.rviz --ros-args -p use_sim_time:=true
 ```
 
 ### Gazebo GUI — 3D 월드
