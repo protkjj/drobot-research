@@ -161,6 +161,8 @@ roll                         1.17°              1.22° (0.0213 rad)
 | `5ad328f` | `costmap_probe` elevation 모드가 `…/elevation_grid` 토픽을 찾아 쓰게 (실제 이름 `/global_costmap/elevation_layer/elevation_grid`) |
 | `cf1369a` | ElevationLayer 자체 격자의 미관측 칸을 NO_INFORMATION 으로 명시 (전에는 미정의 값) |
 | `4d0445c` | 플래너 (b-0): 지형은 ElevationLayer 에서, 충돌은 master 에서. 착륙은 관측 칸에만 (3절 B) |
+| `7ea2ba6` | uncrustify 정렬 되돌림 (데탑 테스트에서 린터 1건) |
+| `dff0643` | **nav2 params: `energy_model` 을 `planner_server` 아래로** — 값 31개가 전부 버려지고 있었다 (4절) |
 
 영향 검토 (코드로 확인)
 
@@ -191,6 +193,11 @@ python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0
 ```bash
 ./sync.sh test        # 빌드 + colcon test. LayerTerrainTest 5개 포함, 실패 0 이어야 함
 ```
+
+2026-10-02 첫 실행: `test_state_space` 13/0 (LayerTerrainTest 5 포함), 계약 9/0, 에너지 18/0, cpplint 통과.
+실패 110 중 내 것은 uncrustify 1건(`7ea2ba6` 에서 고침), params 7건은 원래 있던 버그(`dff0643`).
+**남는 실패는 원래 있던 린터뿐이다** — flake8 94 + pep257 2 는 전부 `scripts/test_maps.py`
+(작은따옴표 Q000 90건 등), copyright 1 은 `src/energy_model.cpp`. CTest 가 이를 한 번 더 센다.
 
 다 통과하면 integration 에 병합하고 push.
 
@@ -307,6 +314,13 @@ track_unknown_space: false — 미관측을 free 로 봐서 장애물 윗면이 
 ---
 
 ## 4. 에너지 파라미터가 서로 안 맞는다
+
+> **⚠ 2026-10-02 — 지금까지 시뮬은 설정 파일의 에너지 값을 쓰지 않았다.**
+> `nav2_params_hybrid*.yaml` 의 `energy_model:` 블록이 최상위 키라서 rcl 이
+> 'energy_model' 이라는 (존재하지 않는) 노드의 설정으로 읽고 버렸다. 플래너는 C++ 기본값
+> (= default 세트)으로 계획했고, **`DROBOT_ENERGY=derived` 로 돌린 기록도 실제로는 default 로
+> 계획된 것이다.** `test_nav2_params_file` 7건이 이걸 잡고 있었다. `dff0643` 에서 값은 그대로 두고
+> `planner_server: ros__parameters:` 아래로 옮겼다. derived 결과는 이 수정 뒤에 다시 내야 한다.
 
 ```
 ground  0.5 Wh/m x 0.3 m/s =  540 W
