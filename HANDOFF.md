@@ -1,6 +1,6 @@
 # drobot-research 진행 상황
 
-**최종 갱신 2026-08-25**
+**최종 갱신 2026-08-25** (4절 표만 2026-09-22 갱신)
 
 ---
 
@@ -486,8 +486,13 @@ ros2 topic pub --once /energy/segment_control std_msgs/String "data: 'stop'"
 
 | 항목 | 내용 |
 |---|---|
+| **`energy_model` 이 플래너에 안 들어가던 문제** (2026-09-22 수정) | `nav2_params_hybrid.yaml` / `_derived.yaml` 에서 `energy_model:` 이 최상위 키였다. rcl 은 최상위 키를 노드 이름으로 읽으므로 `/energy_model` 이라는 없는 노드의 섹션이 되어 31개 값이 전부 버려졌고, planner_server 는 C++ 기본값으로 계획했다. C++ 기본값이 default 세트와 전부 같아서 드러나지 않았고 **`energy:=derived` 는 no-op 였다.** 블록을 `planner_server: ros__parameters:` 아래로 옮겼다. 실제 planner_server 실측: 수정 전 derived 파일 → 이륙/착륙/비행/고도당 5.0/3.0/2.0/2.0 (기본값), 수정 후 → 0.5/0.3/0.6/0.4. 회귀 테스트 `drobot_hybrid_planner/test/test_nav2_params_file.cpp` (수정 전 파일로 돌리면 7개 전부 실패) |
+| **무효가 된 결과** — 'derived' 라고 기록됐지만 default 값으로 계획됨 (재실행 전) | `sim_medium_open_derived.json`, `sim_base_map_h0.5_derived.json` (루트와 `benchmark/results/` 사본 모두), `benchmark/results/sim_medium_open_derived.png`, `tmp.json`, `sim.log` (09-22 실행분. 09-19 기록은 이 실행이 덮어썼다. 이 실행은 진단 작업 중 planner_server 가 외부에서 종료돼 `aborted` 로 끝났으니 결과로 쓰지 말 것). 근거: 기록된 ModeSwitchPlan 에너지가 이륙 6.6 / 착륙 4.6 Wh = 5.0+2.0×0.8 / 3.0+2.0×0.8 로 default 식이다 (derived 면 0.82 / 0.62). **영향 없음**: Python 벤치마크 (`exp_param_sets.py` → `benchmark_param_sets.json`, `publish_paths.py`) 는 `energy_params_derived.yaml` 을 직접 읽는다. 0.5/0.6절 sweep 도 Python·default 세트다. 제출 PDF 에는 derived 결과가 인용돼 있지 않다 |
+| 참조용 yaml 은 어떤 런치도 로드하지 않는다 | `energy_params*.yaml`, `hybrid_astar_params.yaml`, `elevation_params.yaml` 은 Python 이 직접 읽거나 문서용이다. 시뮬레이션이 쓰는 값은 `nav2_params_hybrid*.yaml` 에만 있다. 예: `GridBased.modal` 은 `hybrid_astar_params.yaml` 에만 있어 시뮬레이션은 늘 C++ 기본값 `hybrid` 다. 참조 파일을 그대로 `--params-file` 로 넘기면 최상위 `energy_model:` / `elevation_layer:` 때문에 이번과 같은 방식으로 버려진다. `scripts/test_maps.py` 는 `elevation_params.yaml` 에 없는 키 `elevation_costmap_layer` 를 읽어 `KeyError` 로 실패한다 (이 파일 때문에 패키지 린터 copyright/flake8/pep257 도 실패 중) |
+| `behavior_server` 의 `costmap_topic` / `footprint_topic` | Jazzy 에는 없는 이름이라 선언되지 않는다 (실제 이름은 `local_costmap_topic` / `local_footprint_topic` 등). 기본값이 yaml 값과 같아서 동작 영향은 없다. `nav2_params.yaml` 도 같다. 나머지 섹션은 전부 실제 노드와 일치 (2026-09-22, 서버 5개를 실제로 띄워 대조) |
+| cost↔높이 계약이 호스트 costmap 설정에 오염됨 | 플래너가 master costmap 의 cost 로 높이를 역추론해서 inflation·obstacle_layer·`track_unknown_space` 값이 '높이'로 읽힌다. 벽 옆 주행불가 띠 0.25~0.45 m, 가짜 0.15 m 띠까지 0.35~1.00 m, 로버 통과 최소 통로 0.55~0.95 m (순정 0.45 m) — 호스트 설정에 따라 달라진다. 상세와 권고: `src/drobot_hybrid_planner/COST_HEIGHT_CONTRACT.md` |
 | `flight_clearance` vs `activation_height` | 0.8 > 0.5 이라 3D에서 ground effect가 영원히 안 켜진다. 4D로 가거나 clearance를 낮춰야 의미를 갖는다 |
-| `fly_over_max` vs 천장 제약 | elevation_params의 2.0m는 천장 제약상 실제 통과 가능 높이(1.2m)를 넘는다. 레이어가 시작 시 경고를 남긴다 |
+| `fly_over_max` vs 천장 제약 | elevation_params의 2.0m는 천장 제약상 실제 통과 가능 높이(1.2m)를 넘는다. 레이어가 시작 시 경고를 남긴다 (시뮬레이션이 실제로 쓰는 `nav2_params_hybrid*.yaml` 은 1.2 라 경고가 안 뜬다 — 2.0 은 참조 파일에만 있다) |
 | 파라미터 이중 정의 | `flight_clearance`(플래너)와 `robot_flight_height`(costmap)가 같은 값을 가리킨다. 한쪽만 바꾸면 분류와 판단이 어긋난다 |
 | `src/README.md` | 삭제된 패키지들을 설명하는 옛 문서. 정리 필요 |
 | 등반계수 미검증 | `climb_mode.energy_per_height_m = 2.0` 은 추정치다. 현재 3 modal 결론 전체가 이 값에 걸려 있다. INA226 실측 후 0.5절 표에서 해당 행을 보면 결론이 정해진다 |

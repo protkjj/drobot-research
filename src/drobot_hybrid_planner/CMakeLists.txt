@@ -80,6 +80,32 @@ if(BUILD_TESTING)
   )
   target_link_libraries(test_state_space hybrid_astar_planner)
   ament_target_dependencies(test_state_space ${dependencies})
+
+  # 아래 두 테스트는 노드를 만든다. 떠 있는 시뮬레이션과 DDS 로 섞이지 않게
+  # ROS_DOMAIN_ID 를 격리해 돌린다 (특히 첫 번째는 노드 이름이 planner_server 다).
+  find_package(ament_cmake_ros REQUIRED)
+
+  # nav2 파라미터 파일 -> planner_server -> EnergyModel 전달 경로.
+  # 파일 구조가 아니라 '값이 노드에 도달하는가'를 본다 (파일 상단 주석 참고).
+  ament_add_ros_isolated_gtest(test_nav2_params_file test/test_nav2_params_file.cpp)
+  target_include_directories(test_nav2_params_file PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  target_compile_definitions(test_nav2_params_file PRIVATE
+    DROBOT_BRINGUP_NAV_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../drobot_bringup/config/navigation"
+  )
+  target_link_libraries(test_nav2_params_file hybrid_astar_planner)
+  ament_target_dependencies(test_nav2_params_file ${dependencies})
+
+  # cost <-> 높이 계약이 호스트 inflation 설정에 오염되는 정도 (측정/특성화).
+  # 실제 nav2_costmap_2d::InflationLayer 를 쓴다. 결과 정리: COST_HEIGHT_CONTRACT.md
+  ament_add_ros_isolated_gtest(test_costmap_terrain_contract
+    test/test_costmap_terrain_contract.cpp)
+  target_include_directories(test_costmap_terrain_contract PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+  )
+  target_link_libraries(test_costmap_terrain_contract hybrid_astar_planner)
+  ament_target_dependencies(test_costmap_terrain_contract ${dependencies})
 endif()
 
 install(TARGETS hybrid_astar_planner
