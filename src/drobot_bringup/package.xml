@@ -14,6 +14,10 @@
   <exec_depend>drobot_controller</exec_depend>
   <exec_depend>teleop_twist_keyboard</exec_depend>
 
+  <!-- 런타임에 로드하는 커스텀 플러그인 (pluginlib) — 설치 완결성 -->
+  <exec_depend>drobot_costmap_2_5d</exec_depend>
+  <exec_depend>drobot_hybrid_planner</exec_depend>
+
   <!-- Simulation -->
   <exec_depend>ros_gz_sim</exec_depend>
   <exec_depend>ros_gz_bridge</exec_depend>

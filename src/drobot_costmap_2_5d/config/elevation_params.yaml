@@ -1,7 +1,13 @@
 # 2.5D Elevation Costmap Layer 파라미터
 #
-# 이 파일의 키 이름은 ElevationLayer::onInitialize() 가 읽는 이름과
-# 정확히 일치해야 한다. 불일치하면 조용히 기본값이 쓰인다.
+# ⚠️ 이 파일은 런타임에 로드되지 않는다 (참조/문서용).
+#    costmap 이 실제로 쓰는 값은 bringup 의 nav2_params_hybrid*.yaml 에
+#    elevation_layer 로 인라인돼 있다 (Nav2 플러그인 파라미터는 costmap 노드
+#    네임스페이스 아래에 있어야 해서 별도 파일 참조가 안 된다).
+#    여기 값을 바꿔도 시뮬 동작은 안 바뀐다 — nav2_params 쪽을 고쳐야 한다.
+#    (test_maps.py 등 오프라인 도구가 높이 임계값을 참조할 수 있으므로 유지한다.)
+#
+# 키 이름은 ElevationLayer::onInitialize() 가 읽는 이름과 일치한다.
 #
 # Nav2 costmap 설정에 넣을 때는 레이어 이름 아래로 들어간다:
 #     global_costmap:
@@ -20,7 +26,7 @@ elevation_layer:
     # 4단계: Free / Rover-traversable / Fly-over / Impassable
     height_thresholds:
       rover_traversable_max: 0.15    # m — 이 이하는 바퀴로 넘을 수 있음
-      fly_over_max: 2.0              # m — 이 이하는 비행으로 넘을 수 있음
+      fly_over_max: 2.0              # m (참고) — 실배선은 nav2_params 에서 1.2 (천장 제약)
       # fly_over_max 초과 → Impassable
 
     # 천장 높이 — Impassable 판정 기준
@@ -31,8 +37,8 @@ elevation_layer:
     # 로봇이 비행할 때의 고도(장애물 위 여유)와 천장 여유.
     # drobot_hybrid_planner 의 flight_clearance 와 같은 값을 써야
     # costmap 분류와 플래너 판단이 일치한다.
-    robot_flight_height: 0.8         # m
-    min_ceiling_clearance: 0.5       # m
+    robot_flight_height: 0.8         # m  ← SSOT: drobot_description/config/robot_physical.yaml
+    min_ceiling_clearance: 0.5       # m  ← SSOT: robot_physical.yaml
     #
     # 주의: 위 세 값으로 계산하면 실제 통과 가능 높이는
     #       2.5 - 0.8 - 0.5 = 1.2m 다.
@@ -63,10 +69,6 @@ elevation_layer:
     use_laserscan: true
     depth_topic: "/camera/depth/points"   # sensor_msgs/PointCloud2
     scan_topic: "/scan"                   # sensor_msgs/LaserScan
-    #
-    # 주의: 현재 ros_gz_bridge.yaml 은 depth를 Image(/camera/depth_image_raw)로만
-    #       브리지한다. PointCloud2 항목이 없으므로 이 토픽이 존재하지 않는다.
-    #       gz 토픽 /camera/points 를 PointCloud2로 브리지하는 항목을 추가해야 한다.
 
     # 포인트 필터
     min_obstacle_height: -0.5        # m — 이보다 낮은 점은 노이즈로 간주

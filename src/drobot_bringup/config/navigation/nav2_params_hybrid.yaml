@@ -145,9 +145,9 @@ local_costmap:
         height_thresholds:
           rover_traversable_max: 0.15
           fly_over_max: 1.2
-        ceiling_height: 2.5
-        robot_flight_height: 0.8
-        min_ceiling_clearance: 0.5
+        ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
+        robot_flight_height: 0.8       # ← SSOT: robot_physical.yaml (flight_clearance)
+        min_ceiling_clearance: 0.5     # ← SSOT: robot_physical.yaml
         traversability:
           max_slope_angle: 15.0
           max_roughness: 0.03
@@ -232,9 +232,9 @@ global_costmap:
         height_thresholds:
           rover_traversable_max: 0.15
           fly_over_max: 1.2            # 천장 제약상 실제 통과 가능 높이에 맞춤
-        ceiling_height: 2.5
-        robot_flight_height: 0.8       # 플래너의 flight_clearance 와 일치시킬 것
-        min_ceiling_clearance: 0.5
+        ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
+        robot_flight_height: 0.8       # ← SSOT: robot_physical.yaml (flight_clearance)
+        min_ceiling_clearance: 0.5     # ← SSOT: robot_physical.yaml
         traversability:
           max_slope_angle: 15.0
           max_roughness: 0.03
@@ -282,8 +282,8 @@ planner_server:
       # 전체 파라미터 설명: drobot_hybrid_planner/config/hybrid_astar_params.yaml
       timeout: 2.0
       max_expansions: 2000000
-      flight_clearance: 0.8            # elevation_layer 의 robot_flight_height 와 일치
-      ceiling_height: 2.5
+      flight_clearance: 0.8            # ← SSOT: robot_physical.yaml
+      ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
       rover_traversable_max: 0.15
       flyover_representative_height: 0.60
       allow_diagonal: true

@@ -1,0 +1,26 @@
+# ============================================================================
+# robot_physical.yaml — 공유 물리 상수의 단일 진실 출처 (SSOT)
+# ============================================================================
+# 여러 패키지 yaml 에 같은 물리값이 흩어져 있으면 한쪽만 바꿨을 때 조용히
+# 어긋난다 (costmap 분류 ↔ 플래너 판단 ↔ mode_manager 실행 불일치).
+# 이 파일을 기준값으로 삼고, 아래 값을 쓰는 모든 곳에 "← SSOT: robot_physical.yaml"
+# 주석을 달아 동기화를 강제한다.
+#
+# ⚠️ 현재는 참조-of-record 방식이다 (런치가 이 파일을 자동 주입하지 않는다).
+#    각 소비 파일이 아래 값과 일치하는지 수동으로 맞춰야 한다.
+#    향후: 런치에서 이 파일을 로드해 각 노드 파라미터로 주입하면 강제된다.
+#
+# 소비처:
+#   flight_clearance      : nav2_params_hybrid*.yaml — elevation_layer.robot_flight_height,
+#                           planner(GridBased).flight_clearance
+#   min_ceiling_clearance : nav2_params_hybrid*.yaml — elevation_layer.min_ceiling_clearance,
+#                           drobot_mode_manager/config/mode_switch_params.yaml
+#   ceiling_height        : nav2_params_hybrid*.yaml — elevation_layer, planner
+#   max_flight_distance   : planner, drobot_mode_manager (max_flight_distance)
+# ============================================================================
+
+robot_physical:
+  flight_clearance: 0.8       # m — 장애물 위 비행 여유고도
+  min_ceiling_clearance: 0.5  # m — 천장 아래 최소 여유
+  ceiling_height: 2.5         # m — 실내 천장 높이
+  max_flight_distance: 5.0    # m — 1회 비행 구간 최대 거리
