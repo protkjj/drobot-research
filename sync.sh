@@ -235,11 +235,23 @@ do_sim() {
   fi
 
   echo "==> 시뮬레이션: world=$world planner=$planner energy=$energy mode=$mode"
-  ssh "$REMOTE" "docker exec -u \$(id -u):\$(id -g) $disp drobot_ros2 bash -lc '
+  # 시뮬레이션만은 -u 없이(컨테이너 기본 사용자 = root) 띄운다.
+  #
+  # 왜: -u \$(id -u):\$(id -g) 로 띄우면 Gazebo 가 로봇 스폰 직후
+  # ogre 렌더 컨텍스트 초기화에서 멈춘다 (/clock 부터 모든 토픽이 0).
+  # root 로 띄우면 같은 명령이 매번 성공한다 (3/3 vs 전부 실패).
+  # 그룹(video 44, render 992)·/dev/dri 권한·HOME 은 모두 정상인데도
+  # 그렇다. 메커니즘은 미규명이고 A 트랙 과제로 남긴다. 2026-10-01.
+  #
+  # 빌드는 그대로 -u 를 쓴다 — 산출물이 root 소유가 되면 안 된다.
+  ssh "$REMOTE" "docker exec $disp drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
       nohup ros2 launch drobot_bringup navigation.launch.py \
         world:=$world planner:=$planner energy:=$energy robot_model:=mesh $gui_args $gzv \
         > /app/sim.log 2>&1 &
+      sleep 1
+      # 로그가 root 소유로 남으면 호스트에서 지울 수 없다
+      chown \$(stat -c %u:%g /app) /app/sim.log 2>/dev/null || true
       echo \"launch 시작 — 로그: $REMOTE_DIR/sim.log\"
     '"
   echo "    확인이 끝나면 반드시: ./sync.sh stop"
