@@ -24,16 +24,20 @@
     그 밖의 값은 inflation_layer 가 만든 것이다. 100·200 도 inflation 이
     우연히 그 값을 만들 수 있다 (master costmap 은 레이어별 최댓값이라 구분 불가).
 
-'플래너 판독' 열
-    HybridAStarPlanner 의 CostmapTerrainSource (drobot_hybrid_planner
-    state_space.hpp/.cpp) 는 master costmap 의 cost 를 이렇게 등급으로 읽는다:
-        <= 50 free · <= 150 rover · <= 253 fly_over · 그 외 impassable
-    inflation 값이 지형 등급으로 읽히는 셀에 ⚠ 를 붙인다.
+플래너는 두 격자를 읽는다 ('플래너' 열)
+    HybridAStarPlanner 의 LayerTerrainSource (state_space.hpp, 2026-10-02~) 는
+      지형 — ElevationLayer 자체 격자   /global_costmap/elevation_layer_raw
+             <= 50 free · <= 150 rover · <= 253 fly_over · 254 impassable
+             255(미관측)는 주행 가능, 착륙 불가
+      충돌 — master                    /global_costmap/costmap_raw
+             253·254 면 footprint 가 장애물과 겹친다. 그 밖의 값(inflation)은 안 본다
+    '플래너' 열은 읽는 토픽에 따라 둘 중 하나로 표시한다.
+    Nav2 Jazzy 는 레이어별 격자를 '<costmap>/<레이어 이름>_raw' 로 따로 낸다.
 
 사용 (컨테이너 안)
-    python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.5
-    python3 /app/tools/costmap_probe.py --topic /local_costmap/costmap_raw --x0 ...
-    python3 /app/tools/costmap_probe.py --mode elevation --x0 ...   # elevation_grid 토픽은 찾아서 쓴다
+    python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.5      # master
+    python3 /app/tools/costmap_probe.py --topic /global_costmap/elevation_layer_raw --x0 ...  # 지형
+    python3 /app/tools/costmap_probe.py --mode elevation --x0 ...                 # 높이 (m)
 """
 from __future__ import annotations
 
@@ -51,6 +55,8 @@ TERRAIN_CLASSES = {FREE: "free", ROVER: "rover_traversable", FLY_OVER: "fly_over
 # --- CostmapTerrainSource::Config 기본값 (state_space.hpp) ------------------
 PLANNER_FREE_MAX, PLANNER_ROVER_MAX, PLANNER_FLYOVER_MAX = 50, 150, 253
 
+ELEVATION_GRID_TOPIC = "/global_costmap/elevation_layer/elevation_grid"   # 2026-10-02 시뮬 확인
+
 
 def label_raw_cost(c: int) -> str:
     """costmap_raw 값(0~255)의 뜻."""
@@ -61,8 +67,10 @@ def label_raw_cost(c: int) -> str:
     return f"inflation({c})"
 
 
-def planner_reading(c: int) -> str:
-    """CostmapTerrainSource::heightAt 이 이 cost 를 어느 등급으로 읽는가."""
+def planner_terrain(c: int) -> str:
+    """LayerTerrainSource 가 등급 격자(…/elevation_layer_raw) 값을 읽는 방식."""
+    if c == NO_INFORMATION:
+        return "미관측 (주행 O · 착륙 X)"
     if c <= PLANNER_FREE_MAX:
         return "free"
     if c <= PLANNER_ROVER_MAX:
@@ -72,10 +80,21 @@ def planner_reading(c: int) -> str:
     return "impassable"
 
 
-def misread_mark(c: int) -> str:
-    """inflation 값인데 플래너가 free 가 아닌 지형으로 읽으면 표시한다."""
-    is_inflation = c not in TERRAIN_CLASSES
-    return " ⚠" if is_inflation and planner_reading(c) != "free" else ""
+def planner_collision(c: int) -> str:
+    """LayerTerrainSource 가 master(…/costmap_raw) 값을 읽는 방식 — 충돌만 본다."""
+    return "충돌 (footprint)" if c in (INSCRIBED, LETHAL) else "-"
+
+
+def planner_column(topic: str):
+    """토픽에 맞는 (열 제목, 판독 함수). master 면 충돌, 레이어 격자면 지형."""
+    if topic.endswith("/costmap_raw"):
+        return "플래너: 충돌", planner_collision
+    return "플래너: 지형", planner_terrain
+
+
+def find_topics(node, suffix: str) -> list:
+    """그래프에서 suffix 로 끝나는 토픽들. 못 받았을 때 후보를 보여주는 데만 쓴다."""
+    return sorted(n for n, _ in node.get_topic_names_and_types() if n.endswith(suffix))
 
 
 def label_elev(v: int, fly_over_max: float) -> str:
@@ -94,26 +113,11 @@ def label_elev(v: int, fly_over_max: float) -> str:
     return f"{h:.2f} m"
 
 
-def find_topic(node, rclpy, suffix: str, prefer: str, timeout: float = 3.0):
-    """suffix 로 끝나는 토픽을 찾는다. prefer 가 들어간 것을 먼저 고른다.
-
-    노드가 막 떠서 그래프 정보가 아직 안 들어왔을 수 있어 잠깐 기다린다.
-    """
-    t0 = time.time()
-    while time.time() - t0 < timeout:
-        names = [n for n, _ in node.get_topic_names_and_types() if n.endswith(suffix)]
-        if names:
-            names.sort(key=lambda n: prefer not in n)     # False(=prefer 포함)가 앞
-            return names[0]
-        rclpy.spin_once(node, timeout_sec=0.1)
-    return None
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--topic", default=None,
                     help="기본: cost 모드 /global_costmap/costmap_raw, "
-                         "elevation 모드는 '…/elevation_grid' 토픽을 찾아 쓴다 (global 우선)")
+                         f"elevation 모드 {ELEVATION_GRID_TOPIC}")
     ap.add_argument("--x0", type=float, required=True)
     ap.add_argument("--y0", type=float, required=True)
     ap.add_argument("--x1", type=float, required=True)
@@ -126,9 +130,8 @@ def main():
                     help="elevation 모드의 스케일 상한 (nav2_params 의 fly_over_max)")
     a = ap.parse_args()
 
-    topic = a.topic
-    if a.mode == "cost" and topic is None:
-        topic = "/global_costmap/costmap_raw"
+    topic = a.topic or ("/global_costmap/costmap_raw" if a.mode == "cost"
+                        else ELEVATION_GRID_TOPIC)
     if a.mode == "cost" and not topic.endswith("_raw"):
         sys.exit(f"{topic} 는 0~100 으로 환산된 토픽이라 등급을 구분할 수 없다. "
                  f"{topic}_raw 를 쓸 것 (모듈 설명 참고)")
@@ -146,14 +149,6 @@ def main():
     node = Node("costmap_probe")
     box = {}
 
-    if topic is None:
-        # ElevationLayer 는 '<레이어 이름>/elevation_grid' 로 낸다
-        # (예: /global_costmap/elevation_layer/elevation_grid).
-        # 레이어 이름이 바뀌어도 되도록 이름을 추측하지 않고 찾는다.
-        topic = find_topic(node, rclpy, "/elevation_grid", prefer="global_costmap")
-        if topic is None:
-            sys.exit("…/elevation_grid 토픽이 없다. publish_elevation_grid: true 인지 확인할 것")
-
     if a.mode == "cost":
         from nav2_msgs.msg import Costmap
         node.create_subscription(Costmap, topic, lambda m: box.setdefault("m", m), latched)
@@ -165,7 +160,11 @@ def main():
     while "m" not in box and time.time() - t0 < a.timeout:
         rclpy.spin_once(node, timeout_sec=0.1)
     if "m" not in box:
-        sys.exit(f"{topic} 를 못 받았다")
+        # 이름이 다를 수 있으니 후보를 보여준다. 이 시점이면 그래프 발견도 끝나 있다
+        # (발견에 5 초 넘게 걸리는 걸 봤다 — 그래서 이름을 미리 찾지 않는다).
+        suffix = "_raw" if a.mode == "cost" else "/elevation_grid"
+        hint = "\n  ".join(find_topics(node, suffix)) or "(없음)"
+        sys.exit(f"{topic} 를 {a.timeout:.0f} 초 안에 못 받았다. 후보:\n  {hint}")
 
     m = box["m"]
     # 두 메시지의 격자 정보 필드 이름이 다르다
@@ -179,9 +178,10 @@ def main():
     ox, oy = info.origin.position.x, info.origin.position.y
 
     print(f"{topic}  {W}x{H} @ {res} m  원점 ({ox:.2f}, {oy:.2f})  모드 {a.mode}")
+    col_title, col_fn = planner_column(topic)
     if a.mode == "cost":
         print(f"{'거리':>6} {'x':>7} {'y':>7} {'cell':>12} {'값':>5}  "
-              f"{'의미':<26} 플래너 판독")
+              f"{'의미':<26} {col_title}")
     else:
         print(f"{'거리':>6} {'x':>7} {'y':>7} {'cell':>12} {'값':>5}  "
               f"높이 (상한 {a.fly_over_max} m)")
@@ -200,7 +200,7 @@ def main():
         v = m.data[my * W + mx]
         head = f"{d*f:6.2f} {x:7.2f} {y:7.2f} {f'({mx},{my})':>12} {v:5d}  "
         if a.mode == "cost":
-            print(head + f"{label_raw_cost(v):<26} {planner_reading(v)}{misread_mark(v)}")
+            print(head + f"{label_raw_cost(v):<26} {col_fn(v)}")
         else:
             print(head + label_elev(v, a.fly_over_max))
 
