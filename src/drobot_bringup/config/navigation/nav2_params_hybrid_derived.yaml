@@ -47,7 +47,15 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       required_movement_radius: 0.2      # 0.3→0.2 (더 민감하게)
-      movement_time_allowance: 10.0      # 20→10초 (더 빨리 "막힘" 감지)
+      # 모드 전환(이착륙) 중에는 로봇이 지상에서 안 움직이는 게 정상이다.
+      # mode_manager 가 비행 구간을 수행하는 동안 /speed_limit 으로 지상
+      # 컨트롤러를 묶는데, 그 시간이 이 허용치를 넘으면 Nav2 가 "막혔다"고
+      # 판단해 목표를 포기한다 (실제로 13.6초 비행 중 10초에서 aborted).
+      #
+      # 비행 1회 최대 소요 = 이륙 5 + 순항(최대 5.0 m / 0.5 m/s = 10) + 착륙 4
+      #                   = 19초  (energy_params.yaml · robot_physical.yaml 기준)
+      # 거기에 여유를 둬 30초로 잡는다. 2026-10-01
+      movement_time_allowance: 30.0
 
     goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
