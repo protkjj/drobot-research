@@ -39,6 +39,9 @@ def launch_setup(context):
     # robot_model:=primitives 로 단순 도형 버전을 쓴다 (기본값).
     # STL 을 되찾으면 robot_model:=mesh 로 원본을 쓰면 된다.
     gz_gui = context.launch_configurations.get('gz_gui', 'true').lower() == 'true'
+    headless_rendering = context.launch_configurations.get(
+        'headless_rendering', 'true').lower() == 'true'
+    hr_flag = '--headless-rendering ' if (headless_rendering and not gz_gui) else ''
     use_rviz = context.launch_configurations.get('use_rviz', 'true').lower() == 'true'
     robot_model = context.launch_configurations.get('robot_model', 'primitives')
     urdf_name = ('drobot.urdf.xacro' if robot_model == 'mesh'
@@ -172,7 +175,18 @@ def launch_setup(context):
         # '-s' 는 서버만 띄운다 (GUI 없음).
         #   GUI + RViz 가 X 서버와 GPU 를 점유하면 원격 데스크톱 입력이
         #   먹통이 되고 SSH 까지 끊긴 적이 있어, 기본을 headless 로 둔다.
-        'gz_args': (f'-r {world_file}' if gz_gui else f'-r -s {world_file}'),
+        #
+        # '--headless-rendering' 이 없으면 headless 에서 Gazebo 가 멈춘다.
+        #   로봇에 gpu_lidar + rgbd 카메라가 있어 Sensors 시스템이 렌더
+        #   엔진을 띄우는데, DISPLAY 가 없는 상태에서 ogre2 가 기본값인
+        #   GLX 로 열리지 않아 렌더 스레드가 Waiting for init 에서 멈추고,
+        #   메인 루프가 그걸 기다리다 한 스텝도 안 돈다.
+        #   증상: /clock·/odom·/scan 전부 0, gz topic -l 빈 출력,
+        #        /gazebo/worlds 서비스 타임아웃. (2026-10-01 진단)
+        #   이 플래그는 ogre2 를 EGL 로 열게 한다 — 컨테이너에 이미
+        #   __EGL_VENDOR_LIBRARY_FILENAMES 가 NVIDIA 로 고정돼 있다.
+        'gz_args': (f'-r {world_file}' if gz_gui
+                    else f'-r -s {hr_flag}{world_file}'),
         'on_exit_shutdown': 'true'
     }.items()
     )
@@ -412,6 +426,17 @@ def generate_launch_description():
             default_value='default',
             description="에너지 파라미터 세트: default | derived "
                         "(proposed 플래너에서만 의미 있음)",
+        ),
+        DeclareLaunchArgument(
+            'headless_rendering',
+            default_value='true',
+            description=(
+                'headless(gz_gui:=false)일 때 Gazebo 에 --headless-rendering 을 준다. '
+                '로봇에 gpu_lidar 와 rgbd 카메라가 있어 Sensors 시스템이 렌더 엔진을 '
+                '요구하는데, DISPLAY 가 없으면 ogre2 가 GLX 로 열리지 않아 시뮬 루프가 '
+                '멈춘다(/clock 부터 전부 0). 이 플래그는 EGL 로 열게 한다. '
+                'false 로 두면 예전 동작.'
+            ),
         ),
         OpaqueFunction(function=launch_setup),
     ])
