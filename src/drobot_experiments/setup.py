@@ -23,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'record_run = drobot_experiments.record_run:main',
+            'trial_summary = drobot_experiments.trial_summary:main',
             'publish_paths = drobot_experiments.publish_paths:main',
         ],
     },

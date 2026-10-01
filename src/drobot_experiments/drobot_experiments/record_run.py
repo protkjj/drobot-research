@@ -14,6 +14,8 @@
     /odom                 실제 주행 궤적 (nav_msgs/Odometry)
     /cmd_vel              컨트롤러가 낸 속도 명령 (geometry_msgs/Twist)
 
+끝나면 trial_summary.csv 에 한 줄을 덧붙인다 (빌드 매니페스트의 C 완료 기준).
+
 이 파일은 colcon 설치 없이 python3 로 바로 실행된다 — 빌드가 필요 없다.
 
 사용법 (컨테이너 안에서)
@@ -26,6 +28,8 @@ import json
 import math
 import sys
 import time
+# nav_msgs/Path 와 이름이 겹친다. 파일 경로는 FsPath 로 쓴다.
+from pathlib import Path as FsPath
 
 import rclpy
 from rclpy.action import ActionClient
@@ -36,6 +40,13 @@ from geometry_msgs.msg import PoseStamped, Twist
 from nav_msgs.msg import Odometry, Path
 from action_msgs.msg import GoalStatus
 from nav2_msgs.action import NavigateToPose
+
+# 같은 패키지. 설치 전 python3 로 직접 돌릴 때를 위해 경로를 보탠다.
+try:
+    from drobot_experiments import trial_summary
+except ImportError:
+    sys.path.insert(0, str(FsPath(__file__).resolve().parents[1]))
+    from drobot_experiments import trial_summary
 
 try:
     from drobot_msgs.msg import ModeSwitchPlan
@@ -77,6 +88,8 @@ class Recorder(Node):
         self.odom = []            # 실제 주행 궤적 [(t, x, y, yaw)]
         self.switches = []        # 이·착륙 지점
         self.cmd = []             # 컨트롤러 명령 [(t, vx, wz)]
+        self.t_goal = None        # 목표를 보낸 시각
+        self.planner_time = None  # 목표 -> 첫 계획까지 걸린 시간
         self.plan_msg = None
         self.t0 = time.time()
         self.result = None
@@ -96,6 +109,9 @@ class Recorder(Node):
                      for p in msg.poses]
         self.plan_msg = msg          # --hold 로 재발행할 원본
         self.plan_history += 1
+        # 첫 계획까지의 시간만 센다. 이후는 재계획이라 성격이 다르다.
+        if self.t_goal is not None and self.planner_time is None:
+            self.planner_time = time.time() - self.t_goal
 
     def _on_odom(self, msg: Odometry):
         p = msg.pose.pose.position
@@ -141,6 +157,7 @@ class Recorder(Node):
         g.pose.pose.orientation.w = 1.0
 
         self.get_logger().info(f"목표 전송 {self.goal_xy}")
+        self.t_goal = time.time()
         fut = self.ac.send_goal_async(g)
         rclpy.spin_until_future_complete(self, fut, timeout_sec=15.0)
         handle = fut.result()
@@ -184,6 +201,8 @@ class Recorder(Node):
             "cmd_vel": self.cmd,
             "mode_switches": self.switches,
             "duration_s": round(time.time() - self.t0, 2),
+            "planner_time_s": (round(self.planner_time, 3)
+                               if self.planner_time is not None else None),
         }
         with open(path, "w") as f:
             json.dump(data, f)
@@ -208,6 +227,11 @@ def main():
     ap.add_argument("--timeout", type=float, default=180.0)
     ap.add_argument("--hold", action="store_true",
                     help="기록 후 계획 경로를 latch 토픽으로 계속 발행 (RViz 캡처용)")
+    ap.add_argument("--summary", default="/app/data/trial_summary.csv",
+                    help="한 줄 요약을 덧붙일 CSV ('' 로 두면 안 씀)")
+    ap.add_argument("--planner", default="proposed",
+                    choices=["smac2d", "drone_only", "shortest_hybrid", "proposed"],
+                    help="어느 플래너로 돌렸는지 — 요약 표의 비교 축")
     a = ap.parse_args()
 
     rclpy.init()
@@ -221,6 +245,13 @@ def main():
 
     ok = node.send_goal()
     node.dump(a.out)
+
+    if a.summary:
+        # 요약은 실패한 run 도 남긴다. 실패가 몇 번이었는지가
+        # 결과 해석에 필요한 정보이기 때문이다.
+        row = trial_summary.record(json.load(open(a.out)),
+                                   FsPath(a.summary), a.planner)
+        print(f"  요약 추가 -> {a.summary}  (trial {row['trial_id']})")
 
     if a.hold:
         # Nav2 의 /plan 은 latch 가 아니라, 목표가 끝나면 발행이 멈춘다.
