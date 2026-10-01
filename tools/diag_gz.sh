@@ -10,7 +10,8 @@
 #   bash /app/tools/diag_gz.sh file     월드 + create -file  로 스폰
 #   bash /app/tools/diag_gz.sh topic    월드 + robot_state_publisher + create -topic
 #   bash /app/tools/diag_gz.sh world    월드만 (로봇 없음)
-set -u
+# set -u 는 쓰지 않는다 — ROS 의 setup.bash 가 선언되지 않은 변수를
+# 참조해서 'AMENT_TRACE_SETUP_FILES: unbound variable' 로 죽는다.
 
 MODE="${1:-file}"
 GZ=/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz
