@@ -42,6 +42,10 @@ def launch_setup(context):
     headless_rendering = context.launch_configurations.get(
         'headless_rendering', 'true').lower() == 'true'
     hr_flag = '--headless-rendering ' if (headless_rendering and not gz_gui) else ''
+    # Gazebo 자체 로그를 sim.log 로 끌어온다. 시뮬이 멈출 때 어느 시스템에서
+    # 막혔는지는 이것 없이는 안 보인다 (기본 출력은 Msg 수준뿐).
+    gz_verbose = context.launch_configurations.get('gz_verbose', 'false').lower() == 'true'
+    v_flag = '-v 4 ' if gz_verbose else ''
     use_rviz = context.launch_configurations.get('use_rviz', 'true').lower() == 'true'
     robot_model = context.launch_configurations.get('robot_model', 'primitives')
     urdf_name = ('drobot.urdf.xacro' if robot_model == 'mesh'
@@ -181,8 +185,8 @@ def launch_setup(context):
         #   실제 원인은 렌더 엔진 선택이었고, 월드의 Sensors 플러그인에서
         #   ogre2 -> ogre(v1) 로 바꿔야 돈다 (월드 파일 주석 참고).
         #   이 플래그는 그것과 별개로 headless 에서 두는 편이 맞아 유지한다.
-        'gz_args': (f'-r {world_file}' if gz_gui
-                    else f'-r -s {hr_flag}{world_file}'),
+        'gz_args': (f'-r {v_flag}{world_file}' if gz_gui
+                    else f'-r -s {hr_flag}{v_flag}{world_file}'),
         'on_exit_shutdown': 'true'
     }.items()
     )
@@ -422,6 +426,14 @@ def generate_launch_description():
             default_value='default',
             description="에너지 파라미터 세트: default | derived "
                         "(proposed 플래너에서만 의미 있음)",
+        ),
+        DeclareLaunchArgument(
+            'gz_verbose',
+            default_value='false',
+            description=(
+                'Gazebo 를 -v 4 로 띄워 디버그 로그를 sim.log 에 남긴다. '
+                '시뮬이 멈출 때 원인을 보려면 필요하다. 평소엔 로그가 길어져 꺼둔다.'
+            ),
         ),
         DeclareLaunchArgument(
             'headless_rendering',
