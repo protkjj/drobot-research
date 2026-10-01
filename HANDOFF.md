@@ -3,7 +3,14 @@
 **최종 갱신 2026-10-02 — C 트랙 (실행·에너지)**
 
 브랜치 `integration` = A(eunseo) + C(track-c) + 미푸시분. 충돌 0, SSOT 불일치 0.
-브랜치 `fix/floor-offset` = integration + 바닥 높이 수정 (2절). **시뮬 재측정 후 병합 예정.**
+브랜치 `fix/floor-offset` 을 2026-10-02 integration 에 병합했다 (바닥 높이·B 플래너·에너지 값·회전 임계값).
+
+**다음에 할 일 (2026-10-02 밤 기준)**
+1. `angular_dist_threshold` 0.785 효과 확인 — 시뮬에서 목표 1회, record_run 의 '회전만 %' (전 42%)
+2. RUN.md 3절대로 주행 1회 — B 증상(21 cm 이착륙, 잦은 재계획)과 착륙 제한 효과 재측정
+3. derived 결과 다시 내기 — 그동안 derived 에너지 값이 버려지고 있었다 (4절)
+4. 시뮬은 `sync.sh` 로만 띄울 것 — 직접 `ros2 launch` 를 겹쳐 띄워 시간 역행·Nav2 기동 실패를 겪었다 (RUN 4-8)
+5. 밤에 GUI 모드 중 데탑 ssh 가 끊겼다 (RUN 4-5 전례와 같은 증상으로 추정, 미확인)
 실행 절차는 `RUN.md`, Gazebo 진단은 `tools/diag_gz.sh`.
 
 ---
