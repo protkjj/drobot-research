@@ -61,7 +61,7 @@ docker exec drobot_ros2 bash -lc '
   echo -n "gz 토픽 "; timeout 6 gz topic -l 2>/dev/null | wc -l
   timeout 8 ros2 topic echo /clock --once >/dev/null 2>&1; echo "clock: $?"
   timeout 8 ros2 topic echo /scan  --once --field header >/dev/null 2>&1; echo "scan:  $?"
-  ros2 action list | grep navigate
+  ros2 lifecycle get /bt_navigator
   ros2 topic info /clock | grep Publisher
 '
 ```
@@ -72,9 +72,14 @@ docker exec drobot_ros2 bash -lc '
 gz 토픽 32
 clock: 0
 scan:  0
-/navigate_to_pose
+active [3]
 Publisher count: 1
 ```
+
+`ros2 action list` 로 `/navigate_to_pose` 가 보이는지만 보면 안 된다 — bt_navigator 가
+inactive 여도 액션 이름은 보인다. 그 상태면 RViz 에서 목표를 찍어도
+`Action server is inactive. Rejecting the goal.` 로 조용히 거부된다.
+`inactive [2]` 면 Nav2 기동이 중간에 실패한 것이다. 고치려 하지 말고 `./sync.sh stop` 후 다시 띄운다.
 
 `gz 토픽 0` 이면 Gazebo 가 멈춘 것이다. 4-1 참고.
 `Publisher count` 가 2 이상이면 시뮬이 두 개 떠 있는 것이다. 4-8 참고.
@@ -322,6 +327,12 @@ python3 /app/tools/costmap_probe.py --mode elevation --x0 2.12 --y0 1.5 --x1 2.1
 증상: 모든 노드가 `Detected jump back in time. Clearing TF buffer.` 를 초당 수백 번
 낸다. RViz 는 그때마다 리셋돼 **로봇 모델이 처음엔 보이다가 사라진다.**
 EKF·SLAM·Nav2 도 두 벌이라 무엇을 재든 믿을 수 없다.
+기동 중에 겹치면 Nav2 기동이 실패한다 (`Failed to bring up all requested nodes.
+Aborting bringup.`). bt_navigator 가 inactive 로 남아 **RViz 의 Goal Pose 가 먹지 않는다.**
+나중에 두 번째 런치를 꺼도 이 상태는 돌아오지 않는다 — 다시 띄워야 한다.
+
+`sync.sh sim` 끼리는 안 겹친다 (`stop_sim` 이 먼저 다 죽인다). 겹친 건 `sync.sh` 를 거치지
+않고 `ros2 launch` 를 직접 띄웠을 때다. 런치는 `sync.sh` 로만 띄운다.
 
 확인:
 
