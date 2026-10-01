@@ -20,3 +20,47 @@ mode_manager:
 
     # 천장 여유 최소값 — 로봇 상단 기준
     min_ceiling_clearance: 0.5  # meters
+
+    # ===== 전환 지점 판정 =====
+    # 전환점에 이만큼 가까워지면 "도달"로 본다.
+    # 너무 작으면 컨트롤러가 지나쳐버려 전환을 놓치고,
+    # 너무 크면 엉뚱한 곳에서 이륙한다. 주행 해상도(0.1 m)의 3~4배로 잡았다.
+    arrival_radius: 0.35  # meters
+
+    # 이착륙 실행 백엔드
+    #   sim — PX4 없이 시뮬에서 전환 (현재. 시뮬에 멀티콥터 물리가 없다)
+    #   px4 — Phase 2 실물 오프보드
+    backend: "sim"
+
+    # ===== 좌표 프레임 =====
+    # 규약(인터페이스 규약 ①)은 base_link 지만 저장소 실물은 base_footprint 다.
+    # 규약 정렬은 A 트랙 몫이라 여기서는 파라미터로 받아 맞춰 쓴다.
+    base_frame: "base_footprint"
+    map_frame: "map"
+
+    # ===== 배터리 (인터페이스 규약 C -> C) =====
+    # energy_logger 가 /battery_state 로 내고 여기서 받는다.
+    # 용량은 팩 사양 — 실측으로 교체할 것                        ← 실측
+    battery_capacity_wh: 100.0
+
+    # 배터리를 모를 때 이륙을 막을지.
+    #   false — 시뮬. INA226 이 없어 present=false 로만 오므로 막으면 아무것도 못 한다
+    #   true  — 실물(Phase 2). 모르는 채로 띄우면 안 된다
+    require_battery: false
+
+    # ===== 비행 실행 (단계 2) =====
+    # 시뮬에 멀티콥터 물리가 없어 Gazebo 모델 자세를 직접 쓴다.
+    # 이것은 비행 시뮬레이션이 아니라 운동학 재생이다 — backends.py 참고.
+    world: "base_map_h0.5"      # set_pose 서비스 경로에 들어간다
+    model_name: "drobot"
+
+    # animate — dt 마다 자세를 다시 박는다. Nav2 가 로봇을 밀어내는 걸 덮는다
+    # hop     — 이륙 대기 / 한 번 이동 / 착륙 대기. 전송이 느릴 때(CLI) 쓴다
+    flight_style: "animate"
+    flight_dt: 0.05             # s, animate 간격 (20Hz)
+
+    # ⚠ energy_params.yaml 과 같아야 하는 값. 다르면 계획과 실행이 어긋난다.
+    #    시작할 때 자동으로 대조해서 불일치면 경고가 뜬다 (_check_ssot).
+    takeoff_time: 5.0           # s  = energy_params mode_switch.takeoff_time
+    landing_time: 4.0           # s  = energy_params mode_switch.landing_time
+    flight_speed: 0.5           # m/s = energy_params air_mode.speed
