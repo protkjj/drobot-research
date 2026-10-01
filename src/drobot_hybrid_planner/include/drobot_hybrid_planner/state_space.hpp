@@ -95,8 +95,16 @@ public:
   virtual ~TerrainSource() = default;
   /// 셀의 지형 높이 (m). 통과 불가면 매우 큰 값을 돌려준다.
   virtual double heightAt(unsigned int mx, unsigned int my) const = 0;
-  /// 로버가 이 셀에 있을 수 있는가
+  /// 로버가 이 셀에 있을 수 있는가 (지형 기준)
   virtual bool roverTraversable(unsigned int mx, unsigned int my) const = 0;
+
+  /// 로버 footprint 가 이 셀에서 장애물과 겹치는가 — 지형과 별개인 '충돌' 판정.
+  /// 기본은 '안 겹친다'. 등급만 아는 구현은 지금처럼 동작한다.
+  virtual bool collides(unsigned int /*mx*/, unsigned int /*my*/) const {return false;}
+
+  /// 센서가 이 셀을 실제로 본 적이 있는가. 착륙 판정에 쓴다 (ProblemSpec::landingOk).
+  /// 기본은 '봤다'. 관측 여부를 모르는 구현은 지금처럼 동작한다.
+  virtual bool observed(unsigned int /*mx*/, unsigned int /*my*/) const {return true;}
 };
 
 /// Costmap2D 의 cost 값을 등급으로 읽어 대표 높이를 돌려주는 구현.
@@ -131,6 +139,47 @@ private:
 };
 
 
+/// 지형 등급은 ElevationLayer 자체 격자에서, 충돌은 master costmap 에서 읽는 구현.
+/// (COST_HEIGHT_CONTRACT.md 의 권고 (b-0))
+///
+/// 왜 CostmapTerrainSource 로는 안 되나
+///     master costmap 은 레이어 결과를 합친 것이라 inflation 값이 섞여 있다.
+///     cost 를 등급으로 읽으면 inflation 이 '지형'이 된다. 이 저장소 global
+///     costmap 설정에서는 벽 옆 0.45 m 가 fly_over(날아야 하는 땅),
+///     1.0 m 까지가 0.15 m 턱으로 읽혔다.
+///     ElevationLayer 자체 격자에는 inflation 전 등급(0/100/200/254)만 있다.
+///
+/// 읽는 규칙
+///     높이   등급 격자의 대표 높이. 미관측(255)은 평지로 본다 — 주행은 낙관
+///            (track_unknown_space: false 일 때 master 가 주던 것과 같다).
+///            단 master 가 LETHAL(254)이면 통과 불가 — 비행도 막는다.
+///     충돌   master 가 INSCRIBED(253)·LETHAL(254) 면 footprint 가 장애물과 겹친다.
+///            Nav2 순정 플래너와 같은 의미다. NO_INFORMATION(255)은 충돌로 치지 않는다.
+///     관측   등급 격자가 255 가 아니면 본 셀이다. 착륙은 본 셀에만 한다 (보수).
+class LayerTerrainSource : public TerrainSource
+{
+public:
+  using Config = CostmapTerrainSource::Config;
+
+  /// grade  : 등급 격자 (ElevationLayer — CostmapLayer 라 자기 Costmap2D 를 갖는다)
+  /// master : 합쳐진 costmap (충돌 판정용). 둘은 같은 격자 크기여야 한다.
+  LayerTerrainSource(
+    nav2_costmap_2d::Costmap2D * grade, nav2_costmap_2d::Costmap2D * master,
+    const Config & cfg)
+  : grade_(grade), master_(master), cfg_(cfg) {}
+
+  double heightAt(unsigned int mx, unsigned int my) const override;
+  bool roverTraversable(unsigned int mx, unsigned int my) const override;
+  bool collides(unsigned int mx, unsigned int my) const override;
+  bool observed(unsigned int mx, unsigned int my) const override;
+
+private:
+  nav2_costmap_2d::Costmap2D * grade_;
+  nav2_costmap_2d::Costmap2D * master_;
+  Config cfg_;
+};
+
+
 /// 이동 방식(modal) — 장애물을 만났을 때 '어떻게 넘어가느냐'로 나뉜다.
 ///
 ///   modal          우회   밟고넘기   비행
@@ -160,6 +209,9 @@ public:
     bool check_diagonal_corners = true;
     double rover_max_height = 0.15;   ///< 로버 통과 가능 높이 상한
     Modal modal = Modal::Hybrid;      ///< 이동 방식 제한
+    /// 착륙은 센서가 본 셀에만 (TerrainSource::observed).
+    /// 카메라가 못 본 장애물 윗면이 평지로 보여 그 위에 착륙하던 것을 막는다.
+    bool land_only_on_observed = true;
   };
 
   ProblemSpec(
@@ -172,6 +224,8 @@ public:
   bool inBounds(unsigned int mx, unsigned int my) const;
   double terrain(unsigned int mx, unsigned int my) const;
   bool groundOk(unsigned int mx, unsigned int my) const;
+  /// 공중에서 이 셀로 내려앉을 수 있는가 — groundOk 에 관측 조건을 더한다
+  bool landingOk(unsigned int mx, unsigned int my) const;
 
   // ---- modal 별 능력 --------------------------------------------------
   /// 드론으로 전환해 날 수 있는가

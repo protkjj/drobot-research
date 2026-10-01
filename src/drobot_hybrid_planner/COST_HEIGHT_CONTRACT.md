@@ -3,6 +3,21 @@
 **2026-09-22** · 측정 코드 `test/test_costmap_terrain_contract.cpp` (실행하면 아래 표가 그대로 찍힌다)
 · 설계는 바꾸지 않았다 — 측정과 권고까지다.
 
+> **2026-10-02 갱신 — 권고 (b-0) 를 구현했다.**
+> `LayerTerrainSource` (state_space.hpp) 가 등급은 `terrain_layer`(기본 `elevation_layer`)
+> 자체 격자에서, 충돌(253·254)은 master 에서 읽는다. 레이어가 없으면 아래의 (a) 로
+> 떨어지며 경고한다. 미관측(255)은 주행은 평지로 보되, 착륙은 관측된 칸에만 한다
+> (`land_only_on_observed`). 회귀 테스트는 `test_state_space.cpp` 의 `LayerTerrainTest`.
+> 이 문서의 표와 `test_costmap_terrain_contract.cpp` 는 (a) 를 잰 기록이라 그대로 둔다.
+>
+> 이 문서에서 바로잡을 것 두 가지 (코드 대조)
+> - "ElevationLayer 는 '더 큰 값만' 쓴다 (max 결합)" — 실제 `elevation_layer.cpp`
+>   updateCosts 는 처음(2026-08-25)부터 `setCost` 로 **덮어쓴다**. 그래서 3절 (d) 와 달리,
+>   관측된 칸에서는 obstacle_layer 의 254 가 ElevationLayer 등급으로 바뀐다.
+>   이 문서의 측정은 max 결합 레이어로 흉내 낸 것이다.
+> - "LiDAR 평면은 지면에서 0.55 m" — URDF `base_footprint` 높이 오류(+0.25 m)가
+>   든 TF 값이었다. 실제는 0.30 m (HANDOFF.md 2절, 2026-10-02 수정).
+
 ---
 
 ## 한 줄 결론

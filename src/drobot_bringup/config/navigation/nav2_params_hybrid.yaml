@@ -294,6 +294,10 @@ planner_server:
       ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
       rover_traversable_max: 0.15
       flyover_representative_height: 0.60
+      # 지형 등급을 읽을 레이어 — master 에서 읽으면 inflation 이 지형이 된다
+      # (COST_HEIGHT_CONTRACT.md). 이 이름의 레이어가 없으면 master 로 떨어지며 경고한다.
+      terrain_layer: "elevation_layer"
+      land_only_on_observed: true      # 착륙은 카메라가 본 칸에만 (못 본 장애물 윗면 착륙 방지)
       allow_diagonal: true
       check_diagonal_corners: true     # false면 벽 모서리를 관통하는 경로가 나온다
       smooth_path: true

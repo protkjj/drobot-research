@@ -55,6 +55,46 @@ bool CostmapTerrainSource::roverTraversable(unsigned int mx, unsigned int my) co
 
 
 // ---------------------------------------------------------------------------
+// LayerTerrainSource
+// ---------------------------------------------------------------------------
+double LayerTerrainSource::heightAt(unsigned int mx, unsigned int my) const
+{
+  // LiDAR 등 다른 레이어가 LETHAL 로 막은 곳은 높이를 모르므로 통과 불가.
+  // 비행도 막아야 한다 — 안 그러면 등급 격자가 못 본 장애물 위로 충돌 고도
+  // 계획이 나온다 (COST_HEIGHT_CONTRACT.md 4절).
+  if (master_->getCost(mx, my) == nav2_costmap_2d::LETHAL_OBSTACLE) {
+    return cfg_.h_impassable;
+  }
+  const unsigned char g = grade_->getCost(mx, my);
+  if (g == nav2_costmap_2d::NO_INFORMATION) {return cfg_.h_free;}   // 미관측 — 낙관
+  if (g <= cfg_.free_max) {return cfg_.h_free;}
+  if (g <= cfg_.rover_max) {return cfg_.h_rover;}
+  if (g <= cfg_.flyover_max) {return cfg_.h_flyover;}
+  return cfg_.h_impassable;
+}
+
+bool LayerTerrainSource::roverTraversable(unsigned int mx, unsigned int my) const
+{
+  // 지형만 본다. 충돌(footprint)은 collides() 가 따로 판정한다.
+  const unsigned char g = grade_->getCost(mx, my);
+  if (g == nav2_costmap_2d::NO_INFORMATION) {return true;}          // 미관측 — 낙관
+  return g <= cfg_.rover_max;
+}
+
+bool LayerTerrainSource::collides(unsigned int mx, unsigned int my) const
+{
+  const unsigned char c = master_->getCost(mx, my);
+  return c == nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE ||
+    c == nav2_costmap_2d::LETHAL_OBSTACLE;
+}
+
+bool LayerTerrainSource::observed(unsigned int mx, unsigned int my) const
+{
+  return grade_->getCost(mx, my) != nav2_costmap_2d::NO_INFORMATION;
+}
+
+
+// ---------------------------------------------------------------------------
 // ProblemSpec
 // ---------------------------------------------------------------------------
 ProblemSpec::ProblemSpec(
@@ -90,6 +130,9 @@ double ProblemSpec::terrain(unsigned int mx, unsigned int my) const
 bool ProblemSpec::groundOk(unsigned int mx, unsigned int my) const
 {
   if (!inBounds(mx, my)) {return false;}
+  // footprint 가 장애물과 겹치면 어느 modal 이든 못 선다.
+  // (밟고넘기도 — 장애물 '위'는 갈 수 있어도 벽에 몸이 끼는 자리는 안 된다)
+  if (terrain_->collides(mx, my)) {return false;}
   if (!allowClimb()) {
     return terrain_->roverTraversable(mx, my);
   }
@@ -97,6 +140,15 @@ bool ProblemSpec::groundOk(unsigned int mx, unsigned int my) const
   // 1e-9 여유는 0.70m 장애물이 부동소수 오차로 걸러지는 걸 막기 위함.
   const double h = terrain_->heightAt(mx, my);
   return h <= roverHLimit() + 1e-9;
+}
+
+bool ProblemSpec::landingOk(unsigned int mx, unsigned int my) const
+{
+  if (!groundOk(mx, my)) {return false;}
+  // 주행은 미관측을 평지로 보고 들어가 본다 (가 보면 보인다).
+  // 착륙은 다르다 — 카메라가 못 본 장애물 윗면도 '평지'로 보이므로
+  // 거기 내려앉으면 장애물 속에 박힌다. 2026-10-02 시뮬에서 실제로 그랬다.
+  return !params_.land_only_on_observed || terrain_->observed(mx, my);
 }
 
 
@@ -231,8 +283,8 @@ void ProblemSpec::neighbors(const State & s, std::vector<Edge> & out) const
       out.push_back(
         {{ux, uy, AIR, s.level}, model_->airMoveHorizontal(nb[i].k * res, clr)});
     }
-    // 4) 착륙 — 로버가 설 수 있는 셀에만
-    if (groundOk(s.mx, s.my)) {
+    // 4) 착륙 — 로버가 설 수 있고, 센서가 본 셀에만 (landingOk 주석 참고)
+    if (landingOk(s.mx, s.my)) {
       out.push_back({{s.mx, s.my, GROUND, 0}, model_->landing(z)});
     }
   }

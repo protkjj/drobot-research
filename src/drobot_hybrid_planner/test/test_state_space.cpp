@@ -32,6 +32,7 @@
 #include <tuple>
 #include <vector>
 
+#include <nav2_costmap_2d/cost_values.hpp>
 #include <nav2_costmap_2d/costmap_2d.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <rclcpp_lifecycle/lifecycle_node.hpp>
@@ -42,6 +43,7 @@ using drobot_hybrid_planner::AIR;
 using drobot_hybrid_planner::CostmapTerrainSource;
 using drobot_hybrid_planner::EnergyModel;
 using drobot_hybrid_planner::GROUND;
+using drobot_hybrid_planner::LayerTerrainSource;
 using drobot_hybrid_planner::Modal;
 using drobot_hybrid_planner::ProblemSpec;
 using drobot_hybrid_planner::State;
@@ -344,6 +346,131 @@ TEST_F(StateSpaceTest, ChoosesHigherAltitudeWhenLowestIsNotEnough)
     seen.begin(), seen.end(),
     [](const auto & k) {return std::get<0>(k) > kWallX;});
   EXPECT_TRUE(crossed) << "높은 고도를 골라서라도 넘어야 한다";
+}
+
+
+// ---------------------------------------------------------------------------
+// LayerTerrainSource — 지형은 등급 격자, 충돌은 master (COST_HEIGHT_CONTRACT.md (b-0))
+//
+// master 에는 inflation 이 섞여 있다. CostmapTerrainSource 는 그 값을 지형으로
+// 읽어 벽 옆 빈 바닥을 fly_over 로 봤다. LayerTerrainSource 는 지형을 등급
+// 격자(ElevationLayer 자체 격자)에서 읽고, master 는 충돌(253·254)에만 쓴다.
+//
+// 맵: 등급 격자는 벽 왼쪽이 관측된 평지, 벽 열이 fly_over, 벽 오른쪽이 미관측.
+//     카메라가 장애물 앞면만 보고 그 뒤(윗면)는 못 본 상황과 같다.
+// ---------------------------------------------------------------------------
+class LayerTerrainTest : public StateSpaceTest
+{
+protected:
+  void SetUp() override
+  {
+    StateSpaceTest::SetUp();
+    grade_ = std::make_unique<nav2_costmap_2d::Costmap2D>(
+      kNx, kNy, kRes, 0.0, 0.0, nav2_costmap_2d::NO_INFORMATION);
+    master_ = std::make_unique<nav2_costmap_2d::Costmap2D>(
+      kNx, kNy, kRes, 0.0, 0.0, kCostFree);
+    for (unsigned int my = 0; my < kNy; ++my) {
+      for (unsigned int mx = 0; mx < kWallX; ++mx) {
+        grade_->setCost(mx, my, kCostFree);
+      }
+      grade_->setCost(kWallX, my, kCostFlyOver);
+      master_->setCost(kWallX, my, kCostFlyOver);
+    }
+    layer_terrain_ = std::make_shared<LayerTerrainSource>(
+      grade_.get(), master_.get(), CostmapTerrainSource::Config{});
+  }
+
+  /// master 값을 바꾼 '뒤에' 불러야 한다 (비행 고도 후보를 생성 시점에 만든다).
+  ProblemSpec makeLayerSpec(Modal modal, bool land_only_on_observed = true) const
+  {
+    ProblemSpec::Params p;
+    p.flight_clearance = 0.8;
+    p.ceiling_height = 2.5;
+    p.modal = modal;
+    p.land_only_on_observed = land_only_on_observed;
+    return ProblemSpec(master_.get(), layer_terrain_, &model_, p);
+  }
+
+  std::unique_ptr<nav2_costmap_2d::Costmap2D> grade_;
+  std::unique_ptr<nav2_costmap_2d::Costmap2D> master_;
+  std::shared_ptr<TerrainSource> layer_terrain_;
+};
+
+TEST_F(LayerTerrainTest, InflationIsNotReadAsTerrain)
+{
+  // 벽 왼쪽 칸에 inflation 180 이 쌓였다. 등급 격자에서는 평지다.
+  const unsigned int mx = kWallX - 3;
+  master_->setCost(mx, kMidY, 180);
+
+  const ProblemSpec spec = makeLayerSpec(Modal::Hybrid);
+  EXPECT_NEAR(spec.terrain(mx, kMidY), 0.0, 1e-9);
+  EXPECT_TRUE(spec.groundOk(mx, kMidY));
+
+  // 대조군 — master 에서 등급을 읽는 예전 방식은 같은 칸을 0.60 m 장애물로 본다.
+  // 이게 통과해야 위 단언이 '차이를 잡아내는' 테스트다.
+  ProblemSpec::Params p;
+  p.modal = Modal::Hybrid;
+  const ProblemSpec old_spec(
+    master_.get(),
+    std::make_shared<CostmapTerrainSource>(master_.get(), CostmapTerrainSource::Config{}),
+    &model_, p);
+  EXPECT_NEAR(old_spec.terrain(mx, kMidY), 0.60, 1e-9);
+  EXPECT_FALSE(old_spec.groundOk(mx, kMidY));
+}
+
+TEST_F(LayerTerrainTest, FootprintCollisionBlocksEveryModal)
+{
+  // 내접(253) — 로봇 중심이 여기 오면 footprint 가 장애물과 겹친다.
+  // 밟고넘기도 막혀야 한다 (예전 방식은 0.60 m 로 읽어 '밟고 넘을 수 있다' 고 했다).
+  const unsigned int mx = kWallX - 1;
+  master_->setCost(mx, kMidY, nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE);
+
+  for (const Modal m : {Modal::RoverDetour, Modal::RoverClimb, Modal::Hybrid}) {
+    const ProblemSpec spec = makeLayerSpec(m);
+    EXPECT_FALSE(spec.groundOk(mx, kMidY)) << "modal " << static_cast<int>(m);
+  }
+  EXPECT_TRUE(makeLayerSpec(Modal::Hybrid).groundOk(mx - 1, kMidY)) << "옆 칸은 영향 없다";
+}
+
+TEST_F(LayerTerrainTest, LethalInMasterBlocksFlightToo)
+{
+  // 등급 격자는 평지로 봤지만 다른 레이어(LiDAR)가 LETHAL 로 막았다.
+  // 높이를 모르므로 지상도 비행도 안 된다.
+  const unsigned int mx = kWallX - 2;
+  master_->setCost(mx, kMidY, nav2_costmap_2d::LETHAL_OBSTACLE);
+
+  const ProblemSpec spec = makeLayerSpec(Modal::Hybrid);
+  EXPECT_FALSE(spec.groundOk(mx, kMidY));
+  EXPECT_EQ(lowestUsableLevel(spec, mx, kMidY), -1) << "LETHAL 위로 비행 계획이 나오면 안 된다";
+}
+
+TEST_F(LayerTerrainTest, UnknownInMasterIsNotCollision)
+{
+  // 순정 플래너의 allow_unknown 과 같은 의미 — 미탐색은 충돌이 아니다.
+  master_->setCost(1, kMidY, nav2_costmap_2d::NO_INFORMATION);
+  const ProblemSpec spec = makeLayerSpec(Modal::Hybrid);
+  EXPECT_TRUE(spec.groundOk(1, kMidY));
+}
+
+TEST_F(LayerTerrainTest, UnobservedIsDrivableButNotLandable)
+{
+  // 벽 오른쪽은 미관측 — 카메라가 못 본 장애물 윗면과 같은 상황.
+  const unsigned int mx = kWallX + 3;
+  const ProblemSpec spec = makeLayerSpec(Modal::Hybrid);
+
+  ASSERT_FALSE(layer_terrain_->observed(mx, kMidY));
+  EXPECT_TRUE(spec.groundOk(mx, kMidY)) << "주행은 낙관 — 가 보면 보인다";
+  EXPECT_FALSE(spec.landingOk(mx, kMidY)) << "착륙은 보수 — 못 본 곳에 내려앉지 않는다";
+  EXPECT_TRUE(spec.landingOk(1, kMidY)) << "본 평지에는 착륙한다";
+
+  const State above{mx, kMidY, AIR, 0};
+  const State below{mx, kMidY, GROUND, 0};
+  EXPECT_FALSE(hasTransition(spec, above, below));
+
+  // 끄면 예전처럼 어디든 착륙한다 (대조군)
+  const ProblemSpec loose = makeLayerSpec(Modal::Hybrid, false);
+  EXPECT_TRUE(loose.landingOk(mx, kMidY));
+  EXPECT_TRUE(hasTransition(loose, above, below));
 }
 
 

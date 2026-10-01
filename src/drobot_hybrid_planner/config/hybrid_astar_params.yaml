@@ -63,6 +63,17 @@ planner_server:
       # 한 번의 비행 구간 최대 거리
       max_flight_segment: 5.0          # meters
 
+      # ===== 지형을 어디서 읽나 (COST_HEIGHT_CONTRACT.md) =====
+      # 등급(free/rover/fly_over/impassable)은 이 레이어의 자체 격자에서 읽고,
+      # master costmap 은 충돌(INSCRIBED 253 · LETHAL 254) 판정에만 쓴다.
+      # master 에서 등급을 읽으면 inflation 이 지형으로 읽힌다 — 이 저장소
+      # 설정에서 벽 옆 0.45 m 가 '날아야 하는 땅' 이 됐다.
+      # 이 이름의 레이어가 없으면 master 로 떨어지며 경고한다.
+      terrain_layer: "elevation_layer"
+      # 착륙은 카메라가 본 칸에만. 주행은 미관측을 평지로 보고 들어간다.
+      # 못 본 장애물 윗면이 평지로 보여 그 위에 착륙하던 것을 막는다.
+      land_only_on_observed: true
+
       # 최대 상승/하강 각도 — 격자 해상도와 무관하게 물리 제약으로 정의한다.
       # 격자 칸수로 제한하면 해상도에 따라 실질 경사가 달라지는 버그가 생긴다.
       max_climb_angle: 45.0            # degrees

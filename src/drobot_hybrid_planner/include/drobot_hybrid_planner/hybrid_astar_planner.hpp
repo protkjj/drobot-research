@@ -136,6 +136,7 @@ private:
 
   EnergyModel energy_;
   std::shared_ptr<TerrainSource> terrain_;
+  std::string terrain_layer_ = "elevation_layer";   ///< 지형 등급을 읽을 costmap 레이어 이름
   std::unique_ptr<ProblemSpec> spec_;
   ProblemSpec::Params spec_params_;
 

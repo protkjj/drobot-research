@@ -13,6 +13,8 @@
 #include <string>
 #include <unordered_map>
 
+#include <nav2_costmap_2d/costmap_layer.hpp>
+#include <nav2_costmap_2d/layered_costmap.hpp>
 #include <nav2_util/node_utils.hpp>
 #include <pluginlib/class_list_macros.hpp>
 
@@ -53,6 +55,25 @@ std::string getS(
 {
   nav2_util::declare_parameter_if_not_declared(node, n, rclcpp::ParameterValue(v));
   return node->get_parameter(n).as_string();
+}
+
+/// costmap 플러그인 중 이름이 name 이고 자기 격자를 가진 레이어(CostmapLayer).
+/// 없으면 nullptr.
+///
+/// ElevationLayer 는 planner_server 가 가진 global_costmap 의 플러그인이라
+/// 같은 프로세스에서 바로 꺼낼 수 있다 (Nav2 InflationLayer::getInflationLayer 와
+/// 같은 방식). 토픽이 아니므로 지연·동기화 문제가 없고, createPlan 이 잡는
+/// master 잠금이 레이어 갱신(updateMap)도 막는다.
+nav2_costmap_2d::Costmap2D * findLayerGrid(
+  nav2_costmap_2d::Costmap2DROS & costmap_ros, const std::string & name)
+{
+  for (const auto & layer : *costmap_ros.getLayeredCostmap()->getPlugins()) {
+    if (layer->getName() != name) {continue;}
+    // CostmapLayer 는 Costmap2D 를 상속한다 — 그 격자가 레이어 자신의 결과다
+    auto grid = std::dynamic_pointer_cast<nav2_costmap_2d::CostmapLayer>(layer);
+    return grid ? grid.get() : nullptr;
+  }
+  return nullptr;
 }
 }  // namespace
 
@@ -117,13 +138,41 @@ void HybridAStarPlanner::configure(
   // 에너지 모델은 energy_model 네임스페이스 아래에서 읽는다
   energy_.configure(node, "energy_model");
 
-  // 지형 소스 — Phase 1 은 costmap cost 값에서 등급을 읽는다 (state_space.hpp 주석 참고)
+  // 지형 소스 — 등급은 ElevationLayer 자체 격자에서, 충돌은 master 에서 읽는다
+  // (LayerTerrainSource, COST_HEIGHT_CONTRACT.md 의 (b-0)).
+  // master cost 에서 등급을 읽으면 inflation 이 지형으로 읽힌다.
   CostmapTerrainSource::Config tcfg;
   tcfg.h_rover = spec_params_.rover_max_height;
   tcfg.h_flyover = getD(node, p + "flyover_representative_height", 0.60);
-  terrain_ = std::make_shared<CostmapTerrainSource>(costmap_, tcfg);
+  terrain_layer_ = getS(node, p + "terrain_layer", terrain_layer_);
+  spec_params_.land_only_on_observed = getB(node, p + "land_only_on_observed", true);
+
+  nav2_costmap_2d::Costmap2D * grade = findLayerGrid(*costmap_ros, terrain_layer_);
+  const bool same_size = grade != nullptr &&
+    grade->getSizeInCellsX() == costmap_->getSizeInCellsX() &&
+    grade->getSizeInCellsY() == costmap_->getSizeInCellsY();
+  if (grade != nullptr && !same_size) {
+    RCLCPP_WARN(
+      logger_, "'%s' 격자 크기가 master 와 다르다 (%ux%u vs %ux%u) — 쓰지 않는다",
+      terrain_layer_.c_str(), grade->getSizeInCellsX(), grade->getSizeInCellsY(),
+      costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
+    grade = nullptr;
+  }
+  if (grade != nullptr) {
+    terrain_ = std::make_shared<LayerTerrainSource>(grade, costmap_, tcfg);
+  } else {
+    // 대비책 — 예전 방식. 관측 여부를 모르므로 land_only_on_observed 도 효과가 없다.
+    RCLCPP_WARN(
+      logger_,
+      "costmap 에 '%s' 레이어가 없다 — master cost 에서 지형 등급을 읽는다. "
+      "inflation 이 지형으로 읽히고 착륙 관측 검사가 꺼진다 (COST_HEIGHT_CONTRACT.md).",
+      terrain_layer_.c_str());
+    terrain_ = std::make_shared<CostmapTerrainSource>(costmap_, tcfg);
+  }
 
   spec_ = std::make_unique<ProblemSpec>(costmap_, terrain_, &energy_, spec_params_);
+  const std::string terrain_desc =
+    grade != nullptr ? "레이어 " + terrain_layer_ : "master cost (대비책)";
 
   if (publish_switch_plan_) {
     switch_plan_pub_ = node->create_publisher<drobot_msgs::msg::ModeSwitchPlan>(
@@ -134,10 +183,11 @@ void HybridAStarPlanner::configure(
     logger_,
     "HybridAStarPlanner '%s' 설정 완료: modal=%s, timeout=%.2fs, "
     "flight_clearance=%.2fm, z_max=%.2fm, 통과가능 h<=%.2fm, "
-    "로버 통과높이<=%.2fm, corner_check=%s",
+    "로버 통과높이<=%.2fm, corner_check=%s, 지형=%s, 착륙=%s",
     name_.c_str(), modal_name_.c_str(), timeout_s_, spec_params_.flight_clearance,
     spec_->zMax(), spec_->hLimit(), spec_->roverHLimit(),
-    spec_params_.check_diagonal_corners ? "on" : "off");
+    spec_params_.check_diagonal_corners ? "on" : "off",
+    terrain_desc.c_str(), spec_params_.land_only_on_observed ? "관측 칸만" : "어디든");
 
   // 설정 충돌 경고 — 벤치마크에서 실제로 문제가 됐던 조합
   if (spec_->hLimit() <= spec_params_.rover_max_height) {
