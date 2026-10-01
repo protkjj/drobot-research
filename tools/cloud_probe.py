@@ -59,6 +59,13 @@ def main():
     node.create_subscription(PointCloud2, a.topic,
                              lambda m: box.update(msg=m), qos_profile_sensor_data)
 
+    # TF 리스너가 /tf_static 을 받을 시간을 준다.
+    # 포인트클라우드가 먼저 도착해 바로 lookup 하면 "frame does not exist" 가
+    # 난다 — 정적 변환이 아직 안 들어왔을 뿐인데 프레임이 없다고 오인한다.
+    t0 = time.time()
+    while time.time() - t0 < 3.0:
+        rclpy.spin_once(node, timeout_sec=0.05)
+
     t0 = time.time()
     while "msg" not in box and time.time() - t0 < a.timeout:
         rclpy.spin_once(node, timeout_sec=0.1)
@@ -70,13 +77,28 @@ def main():
           f"stamp {msg.header.stamp.sec}.{msg.header.stamp.nanosec // 1000000:03d}")
 
     # TF — 레이어와 같은 방식 (센서 타임스탬프 기준)
-    try:
-        tf = buf.lookup_transform(a.frame, msg.header.frame_id,
-                                  rclpy.time.Time.from_msg(msg.header.stamp),
-                                  rclpy.duration.Duration(seconds=1.0))
+    tf = None
+    last = ""
+    for _ in range(40):                      # 최대 4초, 0.1초 간격
+        try:
+            tf = buf.lookup_transform(a.frame, msg.header.frame_id,
+                                      rclpy.time.Time.from_msg(msg.header.stamp),
+                                      rclpy.duration.Duration(seconds=0.2))
+            break
+        except Exception as e:
+            last = str(e)
+            rclpy.spin_once(node, timeout_sec=0.1)
+    if tf is None:
+        # 최신 변환으로 한 번 더 — 타임스탬프가 문제인지 프레임이 문제인지 가른다
+        try:
+            tf = buf.lookup_transform(a.frame, msg.header.frame_id,
+                                      rclpy.time.Time())
+            print(f"  ⚠ 센서 타임스탬프로는 실패, 최신 변환으로 대체했다")
+            print(f"     ({last})")
+        except Exception as e:
+            sys.exit(f"  TF 실패: {e}")
+    else:
         print(f"  TF {msg.header.frame_id} -> {a.frame}  OK")
-    except Exception as e:
-        sys.exit(f"  TF 실패: {e}")
 
     R = quat_to_mat(tf.transform.rotation)
     t = np.array([tf.transform.translation.x,
