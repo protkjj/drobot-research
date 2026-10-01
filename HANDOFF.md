@@ -3,6 +3,7 @@
 **최종 갱신 2026-10-02 — C 트랙 (실행·에너지)**
 
 브랜치 `integration` = A(eunseo) + C(track-c) + 미푸시분. 충돌 0, SSOT 불일치 0.
+브랜치 `fix/floor-offset` = integration + 바닥 높이 수정 (2절). **시뮬 재측정 후 병합 예정.**
 실행 절차는 `RUN.md`, Gazebo 진단은 `tools/diag_gz.sh`.
 
 ---
@@ -12,6 +13,9 @@
 **C 트랙 단계 1~4 를 전부 구현하고 시뮬에서 전 사이클 완주를 확인했다.**
 `GROUND → TAKING_OFF → FLYING → LANDING → GROUND`, 착륙 오차 17 cm.
 남은 건 **위치추정이 비행을 못 따라오는 구조적 문제**와 B 트랙 플래너 안정화다.
+
+빈 바닥이 0.25 m 로 보여 fly_over 로 분류되던 것은 **URDF `base_footprint` 높이 오류**가
+원인이었다 (gz 실측으로 확정). `fix/floor-offset` 에서 고쳤고 시뮬 재측정이 남았다 (2절).
 
 ---
 
@@ -83,61 +87,115 @@ primitives 는 상단에 폐기 사유를 달아 참고용으로만 남겼다.
 
 ---
 
-## 2. ⚠ 가장 중요한 미해결 — 빈 바닥이 0.25 m 로 측정된다
+## 2. ⚠ 빈 바닥이 0.25 m 로 측정되던 것 — 원인 확정, 수정함 (시뮬 재측정 대기)
 
-**이 하나가 지금 보이는 거의 모든 이상 동작의 뿌리다.**
+브랜치 **`fix/floor-offset`** (integration 에서 분기, 아직 병합 안 함).
+이것이 가짜 fly_over 의 원인이다. 다만 아래 "이것으로 안 풀리는 것" 은 별개 문제라 남는다.
 
-### 측정 (tools/cloud_probe.py · costmap_probe.py, 깨끗한 실행에서)
+### 측정 — 수정 전 (tools/cloud_probe.py · costmap_probe.py, 깨끗한 실행에서)
 
-포인트클라우드 (카메라 z=0.61, 로봇 (2,1) 에서 +y 를 봄)
+포인트클라우드 (로봇 (2,1) 에서 +y 를 봄)
 
 ```
-센서 프레임  x [0.80, 9.89]  y [-3.86, 1.99]  z [-0.39, 2.72]
+센서 프레임  x [0.80, 9.89]  y [-3.86, 1.99]  z [-0.39, 2.72]   <- TF 적용 전 원본
 전역 프레임  x [0.03, 5.88]  y [ 1.82, 10.90] z [ 0.22, 3.33]
-                                               ^^^^ 최저가 0.22 m
-전역 z 분포   0.10~0.30 m : 117,120 (63%)   <- 전부 여기 몰려 있다
-             0.30~0.55 m :  18,667          <- 장애물(0.5m) 앞면은 본다
+전역 z 분포   0.10~0.30 m : 117,120 (63%)   <- 바닥 자체가 여기 보인다
+             0.30~0.55 m :  18,667          <- 장애물(0.5m) 앞면
 ```
-
-**바닥(z=0)을 보는 점이 하나도 없다.** 최저가 0.22 m 다.
 
 elevation_layer 격자 (x=2.12 선상)
 
 ```
 y=1.91~3.76   0.25 m    빈 바닥인데 0.25
-y=3.97        0.40 m    장애물 앞면 — 유일하게 맞는 측정
-y=4.18~5.00   미관측     장애물에 가려 뒤를 못 봄 (물리적으로 정상)
+y=3.97        0.40 m    장애물 앞면
+y=4.18~5.00   미관측     장애물 윗면을 못 봄
 ```
 
-### 왜 이게 전부를 설명하나
+분류: `elevation_layer.cpp:397,409` 가 셀의 절대 `max_z` 를 `rover_traversable_max 0.15`
+와 비교하므로 0.25 m 바닥은 fly_over(200) 이 된다.
+
+### 원인 — `base_footprint_joint` 의 z = 0.25
+
+`src/drobot_description/urdf/drobot.urdf.xacro` 의 `base_footprint → base_link` 가 +0.25 m 였다.
+TF 는 "base_link 가 바닥에서 25 cm 위" 라고 말하는데, 메시 모델은 base_link 원점이
+이미 바닥 높이다 (바퀴 접지점이 base_link 기준 -0.002 / +0.005).
+
+- Gazebo 물리에서는 바퀴가 땅에 닿아야 하므로 base_footprint 가 **땅 밑 -0.25 m** 에 놓인다
+- EKF `two_d_mode: true` (`ekf.yaml:13`) 는 base_footprint 를 **z=0 으로 고정**한다
+- 그래서 TF 를 거친 센서 점이 전부 +0.25 m 들린다. 카메라 높이: TF 0.61 m / 실제 0.36 m
 
 ```
-rover_traversable_max = 0.15 m
-빈 바닥이 0.25 m  ->  0.25 > 0.15  ->  fly_over(200) 로 분류
+                          예측 (URDF 계산)    실측 (gz model -m drobot -p)
+base_footprint z            -0.2516 m          -0.2518 m
+roll                         1.17°              1.22° (0.0213 rad)
 ```
 
-- 플래너가 **아무것도 없는 바닥 위를 난다** (가짜 fly_over)
-- 장애물 뒤는 **미관측인데 track_unknown_space: false 라 free(0)** 로 보여
-  거기를 착륙 가능으로 판단 -> 로봇이 장애물 속에 박힌다
-- 박힌 채로 컨트롤러가 빠져나오려 **계속 회전**한다
-- inflation 1.0 m 가 그 위에 덮여 **RViz 가 넓게 빨갛다**
+같은 결론을 가리키는 독립 증거
 
-### 원인 후보 (미확정)
+1. **센서 프레임 원본(TF 무관)의 z 최저가 -0.39** — 센서 스스로 "바닥이 39 cm 아래" 라고
+   말한다. 카메라가 0.61 m 라면 -0.61 이어야 한다. 전방·좌우 거리는 월드와 맞으므로
+   깊이 스케일 문제가 아니다.
+2. **장애물 윗면 미관측** — 실제 카메라 높이 0.36 < 장애물 0.5 라서다.
+   0.61 이었다면 비스듬히라도 보였다.
+3. (보조) 센서 프레임 극값 -0.39 / +2.72 — 좌우 바퀴 메시가 7 mm 비대칭이라 생기는
+   roll 1.2° 를 넣으면 -0.394 / +2.722 로 1 cm 안에 맞는다. 시야 끝점 위치 가정에 의존.
 
-- 카메라가 바닥을 못 본다 — 수직 FOV 하단이 로봇 자신(바퀴·팔)에 가릴 가능성.
-  바퀴 윗면이 0.212 m 로 0.22 와 가깝다.
-- 깊이 값 또는 좌표 변환에 계통 오차 0.22 m.
-- 카메라 좌표계는 **무죄로 확인됐다**. `camera_link` 가 맞다
-  (`camera_link_optical` 로 바꿔봤다가 점이 +y 대신 +x 로 날아가 되돌림).
-  URDF 의 광학 링크는 선언만 남겨 뒀고, gazebo.xacro 주석에 이유를 적었다.
+### 기각한 가설 — 다시 밟지 말 것
 
-### 다음에 할 일
+- **카메라 광학 프레임** — `gz_frame_id` 는 `camera_link` 가 맞다 (회전은 정상).
+  단, 광학 프레임 교체 실험은 **회전만** 검증한다. 두 링크는 위치가 같아서 높이 오류는
+  그 실험으로 잡히지 않는다. 이전 판에 "카메라 좌표계는 무죄로 확인됐다" 라고 적어
+  TF 높이를 안 보게 만들었다.
+- **자기 가림** — 점이 0.80 m 앞부터 시작하고 0.25 m 층이 2 m 넘게 평평하다.
+  가림은 가까운 바닥을 지울 뿐 들어 올리지 않는다. (바퀴 지름도 메시 기준 0.224 m)
+- 이전 판의 "바닥(z=0)을 보는 점이 하나도 없다" — 63% 가 바닥 자체였고 0.25 에 보였을 뿐이다.
 
-1. 카메라만 따로 띄워 바닥을 보는지 확인 (로봇 없이 또는 RViz PointCloud2 로)
-2. 계통 오차면 보정, 자기 가림이면 카메라를 올리거나 각도를 주는 것
-3. `track_unknown_space: true` 검토 — 미관측을 free 로 보는 것이 착륙 오판의 절반이다.
-   다만 전역 계획이 보수적으로 막힐 수 있어 "주행은 낙관, 착륙은 보수" 로
-   나누는 편이 맞다 (B 쪽 `landingOk` 분리)
+### 수정 (fix/floor-offset)
+
+| 커밋 | 내용 |
+|---|---|
+| `2cb1927` | URDF `base_footprint_joint` z 0.25 → 0. 카메라 광학 프레임 주석 정정 |
+| | `tools/urdf_ground_check.py` — URDF 만으로 바닥 높이 검사 (ROS 불필요, 맥에서 돈다). 수정 후 -0.002 OK / 수정 전 +0.248 FAIL |
+| | primitives 는 폐기 대상이라 값은 두고 같은 결함(+0.205 m)만 상단에 명시 |
+| `fd0b127` | `tools/costmap_probe.py` — 환산 토픽 대신 `costmap_raw` 를 읽게 (3절 B 참고) |
+| `5ad328f` | `costmap_probe` elevation 모드가 `…/elevation_grid` 토픽을 찾아 쓰게 (실제 이름 `/global_costmap/elevation_layer/elevation_grid`) |
+
+영향 검토 (코드로 확인)
+
+- voxel/obstacle 레이어는 `/scan` 만 쓴다. 라이다 TF 높이 0.55 → 0.30 은 `max_obstacle_height 2.0` 안이라 무관
+- ElevationLayer 는 `min_obstacle_height -0.5` 라 z≈0 바닥을 그대로 받는다
+- mode_manager 착륙 `set_pose z=0` 은 이제 바퀴가 바닥에 닿는 높이다 (전에는 0.25 m 공중에 놓고 떨어뜨렸다)
+- 스폰 `-z 0.05` 그대로 써도 된다 (5 cm 낙하)
+- 남는 오차: roll 1.2° 는 two_d_mode 가 TF 에 넣지 않아, 바닥이 옆으로 4 m 에서 ±8 cm 기울어 보인다.
+  rover_traversable_max 0.15 와 경사 한계 15° 안이라 분류는 free 로 예상 — **미검증**
+
+### 수정 후 확인할 것 (데탑 시뮬)
+
+```bash
+./sync.sh stop && ./sync.sh build        # drobot_description 재설치 — 8 packages 확인
+DROBOT_ENERGY=derived ./sync.sh sim base_map_h0.5 proposed
+# 40초 뒤 (RUN.md 2절 확인 먼저), 컨테이너 안에서 source 후
+gz model -m drobot -p        # z ≈ 0.00            (전: -0.25)
+python3 /app/tools/cloud_probe.py --frame map --min-z -0.5 --max-z 3.0
+                             # 전역 z 대부분 -0.1~0.1  (전: 0.1~0.3 에 63%)
+python3 /app/tools/costmap_probe.py --mode elevation --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0
+                             # 빈 바닥 0.00~0.05 m   (전: 0.25)
+python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0
+                             # 빈 바닥 free          (전: fly_over 로 예상)
+```
+
+넷 다 맞으면 integration 에 병합하고 push.
+
+### 이것으로 안 풀리는 것 — 별개 문제
+
+- **장애물 윗면은 여전히 미관측이고, 그게 free 로 보인다.** 카메라는 물리적으로 0.36 m 라
+  0.5 m 장애물 위를 못 본다. ElevationLayer 는 미관측 셀을 건너뛰고(`elevation_layer.cpp:469`)
+  `track_unknown_space: false`(`nav2_params_hybrid.yaml:216`) 라 master 기본값 free(0) 가 남는다.
+  → 장애물 윗면이 "착륙 가능한 평지" 로 보인다. **"착륙점이 장애물 한가운데" 는 이 수정 후에도 남을 것으로 예상.**
+  대응 후보: `track_unknown_space: true` + B 쪽 착륙 판정을 "관측된 free 만" 으로 분리
+  (주행은 낙관, 착륙은 보수). 또는 카메라 위치를 올리는 것 (하드웨어 결정).
+- **플래너가 inflation 값을 지형 등급으로 읽는다** — 3절 B 참고
+- 착륙 waypoint z 가 지형높이 무시 (`hybrid_astar_planner.cpp:294`, B)
 
 ---
 
@@ -160,20 +218,54 @@ TF 가 옛 자리를 가리키고 Nav2 가 로봇이 안 움직였다고 믿는�
 
 | 트랙 | 상태 |
 |---|---|
-| **A** 지각·지도 | 완료 기준 전부 실증 — Gazebo spawn, 센서 토픽, TF `map→base_footprint`, depth PointCloud2, global_costmap, elevation_layer(local·global 로드 + 분류 동작), robot_physical SSOT |
+| **A** 지각·지도 | Gazebo spawn, 센서 토픽, TF `map→base_footprint`, depth PointCloud2, global_costmap, elevation_layer(local·global 로드 + 분류 로직), robot_physical SSOT 는 동작. **단 TF 높이가 0.25 m 틀려 있어 분류 결과가 틀렸다** — URDF 수정(2절), 재측정 대기 |
 | **B** 계획·비용 | 동작하나 불안정 — 아래 참고 |
 | **C** 실행·에너지 | 단계 1~4 완료, 전 사이클 실증. INA226 실측과 위치추정 문제가 남음 |
 
 ### B 에게 (수정 중이라고 들음)
 
+**먼저**: 아래 증상들은 바닥 오프셋(2절) 수정 **전**에 잰 것이다. 빈 바닥 전체가
+fly_over 로 보이던 상태라 플래너는 어디서든 날 이유가 있었다.
+**`fix/floor-offset` 반영 후 다시 재고 나서 고칠 것.**
+
 ```
 21cm 구간에 이착륙을 건다        쌍 0: (0.27, 3.93) → (0.43, 4.08) 거리 0.21 m
                                  전환 1회 11.2 Wh 를 쓰면서
+                                 이륙점은 왼쪽 벽 안쪽면(x=0.1)에서 0.17 m
+                                 — 벽이 LETHAL 이었다면 아래 inflation 띠 안
 재계획이 잦고 전환점이 매번 튄다   20회/13초, 매 계획마다 다른 자리
 착륙점이 장애물 한가운데          (1.33, 4.53) 지형높이 0.50 m 인데 z=0.0
                                  지상 waypoint z 가 지형높이 무시
                                  hybrid_astar_planner.cpp:294
+                                 그 자리는 장애물 윗면 = 미관측 = free(0) 로 보이는 곳 (2절 끝)
 ```
+
+**새로 — `CostmapTerrainSource` 가 inflation 값을 지형 등급으로 읽는다** (코드로 확인, 시뮬 실측 전)
+
+`state_space.cpp:39-46` 이 inflation 이 섞인 master costmap 의 cost 를
+`≤50 free · ≤150 rover · ≤253 fly_over` 로 읽는다. global costmap 설정
+(inflation_radius 1.0 · cost_scaling 2.0 · footprint 0.45 → 내접반경 0.225)에
+Nav2 inflation 공식을 넣으면:
+
+```
+LETHAL 셀로부터   0 ~ 0.48 m   cost 253~151  ->  fly_over  (주행 불가, 날아야 함)
+                 0.48 ~ 1.0 m  cost 150~51   ->  rover     (0.15 m 지형)
+                 1.0 m ~                       free
+```
+
+즉 **벽 옆 약 0.5 m 띠를 플래너는 날아야 하는 땅으로 본다.** 단 LETHAL 이 되는 건
+**카메라가 1.2 m 넘게 관측한 셀**(벽 3 m)뿐이다. ElevationLayer 는 라이다가 찍은 셀을
+0.16 m 로 기록하고(`elevation_layer.cpp:306-308`) 관측 셀을 자기 등급으로 덮어쓰므로
+(`:474-478`), 라이다만 본 셀과 1.2 m 이하 장애물은 200 이 되어 inflation 이 안 붙는다.
+
+방향 제안 (결정은 B): 지형 등급은 inflation **전** 값으로 읽어야 한다. 예) 플래너가
+ElevationLayer 의 등급 격자를 직접 읽거나, 플래너가 쓰는 costmap 에서 inflation 을 빼고
+안전거리는 플래너 안에서 처리.
+
+**실측 도구 주의**: `/global_costmap/costmap` 토픽은 Nav2 가 0~100 으로 환산해서
+rover=39, fly_over=77, LETHAL=100 으로 보인다. 지형과 inflation 을 구분할 수 없다.
+`tools/costmap_probe.py` 는 이제 `costmap_raw`(원본 0~255)를 읽고, inflation 이 지형으로
+읽히는 셀에 `⚠` 를 붙인다. 이전 버전 출력(100 을 rover 로 표시)으로 판단한 게 있으면 다시 볼 것.
 
 ### 공동 — 킥오프에서 정할 것
 
@@ -181,7 +273,9 @@ TF 가 옛 자리를 가리키고 Nav2 가 로봇이 안 움직였다고 믿는�
 angular_dist_threshold: 0.1 은 5.7° 인데 주석은 45° (Nav2 기본 0.785)
   파라미터 파일 3개 전부. 회전만 비율이 높은 것과 관련 있을 수 있다 — 미확인
 규약은 TF 를 base_link 로 정했는데 실제는 base_footprint
-  동작에는 문제없다. 문서를 고치든 코드를 고치든 택일할 것
+  fix/floor-offset 이후 둘은 같은 자리다 (항등 변환). 문서만 맞추면 된다
+track_unknown_space: false — 미관측을 free 로 봐서 장애물 윗면이 착륙 가능으로 보인다 (2절 끝)
+  true 로 하면 전역 경로가 막힐 수 있다. "주행은 낙관, 착륙은 보수" 로 나눌지 정할 것
 월드 이름에 '.' 이 들어가 ROS 서비스 경로로 못 쓴다 (base_map_h0.5)
   mode_manager 가 gz CLI 로 떨어지는 이유. 이름을 바꾸거나 리맵이 필요
 ```

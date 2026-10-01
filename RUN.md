@@ -1,6 +1,6 @@
 # 시뮬레이션 실행 안내
 
-브랜치 `integration` 기준. 2026-10-01 갱신.
+브랜치 `integration` 기준. 2026-10-02 갱신.
 
 처음 돌리는 사람은 **4. 함정**을 먼저 읽을 것. 오늘 하루를 거기에 썼다.
 
@@ -272,14 +272,49 @@ xhost +local:docker                 # 컨테이너에 X 접근 허용 (호스트
 
 ---
 
+## 4-7. 높이나 cost 가 이상할 때
+
+2026-10-02 에 빈 바닥이 0.25 m 로 보여 하루를 썼다. 원인은 URDF 의
+`base_footprint` 높이였다 (HANDOFF 2절).
+
+**URDF 를 바꿨으면** 맥에서 바로 확인한다 (ROS 불필요). `OK` 가 나와야 한다.
+
+```bash
+python3 tools/urdf_ground_check.py
+```
+
+**센서 점이 전역 어디에 떨어지는지** — 빈 바닥은 z ≈ 0 이어야 한다.
+
+```bash
+python3 /app/tools/cloud_probe.py --frame map --min-z -0.5 --max-z 3.0
+```
+
+**costmap 값을 읽을 때** — `/global_costmap/costmap` 토픽은 쓰지 말 것.
+Nav2 가 0~255 를 0~100 으로 환산해서 rover(100)=39, fly_over(200)=77, LETHAL=100 으로
+보이고 inflation 과 구분이 안 된다. 프로브는 원본(`costmap_raw`)을 읽는다.
+
+```bash
+python3 /app/tools/costmap_probe.py --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0              # cost 등급
+python3 /app/tools/costmap_probe.py --mode elevation --x0 2.12 --y0 1.5 --x1 2.12 --y1 5.0   # 높이
+```
+
+`elevation_grid` 는 cost 가 아니라 **높이**다 (`--mode elevation`).
+
+---
+
 ## 5. 지금 알려진 문제
 
 | 트랙 | 문제 | 상태 |
 |---|---|---|
-| B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 수정 중 |
-| B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 수정 중 |
+| A | 빈 바닥이 0.25 m 로 측정돼 fly_over 로 분류됨 — URDF `base_footprint_joint` z=0.25 가 원인 (gz 실측 z=-0.2518) | `fix/floor-offset` 에서 수정, 시뮬 재측정 대기 |
+| 공동 | 카메라(실제 0.36 m)가 0.5 m 장애물 윗면을 못 봄 → 미관측 → `track_unknown_space: false` 라 free → 착륙 가능으로 보임 | 미결정 (위 수정으로 안 풀림) |
+| B | 플래너(`CostmapTerrainSource`)가 inflation 값을 지형 등급으로 읽음 — 벽에서 0.48 m 이내가 fly_over 로 읽힘 | 코드로 확인, 실측 전 |
+| B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
+| B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
 | B | 착륙점이 장애물 한가운데로 잡힌다 (지상 waypoint z 가 지형높이 무시) | 수정 중 |
 | A | 런치로 띄울 때만 ogre 초기화가 불안정한 근본 원인 (회피책은 적용됨) | 미규명 |
 | 공동 | `angular_dist_threshold: 0.1` 은 5.7° 인데 주석은 45° (Nav2 기본 0.785) | 미결정 |
-| 공동 | 규약은 TF 를 `base_link` 로 정했는데 실제는 `base_footprint` | 미결정 |
+| 공동 | 규약은 TF 를 `base_link` 로 정했는데 실제는 `base_footprint` (바닥 수정 후 둘은 같은 자리) | 문서만 맞추면 됨 |
 | C | INA226 실측 — 지금은 `reference_power.yaml` 추정값 | Phase 2 |
+
+상세와 근거는 `HANDOFF.md` 2절·3절.
