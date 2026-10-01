@@ -202,7 +202,9 @@ _SDF_TEMPLATE = """<?xml version="1.0" ?>
     <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
     <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
-      <render_engine>ogre2</render_engine>
+      <!-- ogre2 가 아니라 ogre(v1). RTX 5070 Ti + gz-sim 8.11 에서 ogre2 는
+           렌더 초기화를 못 끝내고 Sensors 가 시뮬 루프를 멈춘다. 2026-10-01 -->
+      <render_engine>ogre</render_engine>
     </plugin>
 
     <light type="directional" name="sun">

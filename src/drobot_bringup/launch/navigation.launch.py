@@ -176,15 +176,11 @@ def launch_setup(context):
         #   GUI + RViz 가 X 서버와 GPU 를 점유하면 원격 데스크톱 입력이
         #   먹통이 되고 SSH 까지 끊긴 적이 있어, 기본을 headless 로 둔다.
         #
-        # '--headless-rendering' 이 없으면 headless 에서 Gazebo 가 멈춘다.
-        #   로봇에 gpu_lidar + rgbd 카메라가 있어 Sensors 시스템이 렌더
-        #   엔진을 띄우는데, DISPLAY 가 없는 상태에서 ogre2 가 기본값인
-        #   GLX 로 열리지 않아 렌더 스레드가 Waiting for init 에서 멈추고,
-        #   메인 루프가 그걸 기다리다 한 스텝도 안 돈다.
-        #   증상: /clock·/odom·/scan 전부 0, gz topic -l 빈 출력,
-        #        /gazebo/worlds 서비스 타임아웃. (2026-10-01 진단)
-        #   이 플래그는 ogre2 를 EGL 로 열게 한다 — 컨테이너에 이미
-        #   __EGL_VENDOR_LIBRARY_FILENAMES 가 NVIDIA 로 고정돼 있다.
+        # '--headless-rendering' 은 ogre2 를 EGL 로 열게 한다.
+        #   주의: 이 플래그만으로는 Gazebo 멈춤이 해결되지 않았다.
+        #   실제 원인은 렌더 엔진 선택이었고, 월드의 Sensors 플러그인에서
+        #   ogre2 -> ogre(v1) 로 바꿔야 돈다 (월드 파일 주석 참고).
+        #   이 플래그는 그것과 별개로 headless 에서 두는 편이 맞아 유지한다.
         'gz_args': (f'-r {world_file}' if gz_gui
                     else f'-r -s {hr_flag}{world_file}'),
         'on_exit_shutdown': 'true'
@@ -431,10 +427,9 @@ def generate_launch_description():
             'headless_rendering',
             default_value='true',
             description=(
-                'headless(gz_gui:=false)일 때 Gazebo 에 --headless-rendering 을 준다. '
-                '로봇에 gpu_lidar 와 rgbd 카메라가 있어 Sensors 시스템이 렌더 엔진을 '
-                '요구하는데, DISPLAY 가 없으면 ogre2 가 GLX 로 열리지 않아 시뮬 루프가 '
-                '멈춘다(/clock 부터 전부 0). 이 플래그는 EGL 로 열게 한다. '
+                'headless(gz_gui:=false)일 때 Gazebo 에 headless 렌더링 플래그를 준다. '
+                '렌더 엔진을 EGL 로 열게 한다. 참고: Gazebo 멈춤의 실제 원인은 '
+                '이 플래그가 아니라 ogre2 였고, 월드에서 ogre(v1) 로 바꿔 해결했다. '
                 'false 로 두면 예전 동작.'
             ),
         ),

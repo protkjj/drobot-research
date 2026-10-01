@@ -22,7 +22,14 @@
     <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu">
     </plugin>
     <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
-      <render_engine>ogre2</render_engine>
+      <!-- ogre2 가 아니라 ogre(v1) 다. 바꾸지 말 것.
+           RTX 5070 Ti(Blackwell, driver 580) + gz-sim 8.11 조합에서 ogre2 는
+           렌더 스레드 초기화를 끝내지 못하고, Sensors 시스템이 그걸 기다리다
+           시뮬 루프 전체가 멈춘다 (/clock 부터 모든 토픽이 0 이 된다).
+           EGL 자체는 정상이다 (eglInitialize 성공, EGL 1.5, libEGL_nvidia 존재).
+           headless 렌더링 플래그도 GUI 모드도 효과가 없었고, ogre v1 로 바꾸니
+           센서 3개(gpu_lidar/rgbd/imu)가 모두 정상 동작했다. 2026-10-01 확인. -->
+      <render_engine>ogre</render_engine>
     </plugin>
 
     <light type="directional" name="sun">
