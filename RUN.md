@@ -213,6 +213,65 @@ docker exec -it -e DISPLAY=:0 drobot_ros2 bash -lc '
 
 ---
 
+## 4-6. 화면으로 보기 (Gazebo / RViz)
+
+둘 다 **이미 떠 있는 시뮬에 붙는** 방식이다. 시뮬을 다시 띄울 필요 없고,
+창을 닫아도 서버는 계속 돈다. 실패하면 Ctrl+C 로 빠지면 된다.
+
+⚠ **원격 작업 중이면 쓰지 말 것** (4-5 참고). 데탑 앞에 앉아 있을 때만.
+
+### RViz — 로봇·맵·경로·TF (이쪽을 먼저 권함)
+
+```bash
+docker exec -it -e DISPLAY=:0 drobot_ros2 bash -lc '
+  source /opt/ros/jazzy/setup.bash && source /app/install/setup.bash
+  rviz2 -d /app/src/drobot_bringup/config/navigation/display.rviz
+'
+```
+
+보이는 것: RobotModel · LaserScan · Map · Path · TF · MarkerArray(시작/목표)
+
+경로 비교만 볼 때는 전용 설정이 있다.
+
+```bash
+  rviz2 -d /app/src/drobot_bringup/config/navigation/paths_view.rviz
+```
+
+### Gazebo GUI — 3D 월드
+
+```bash
+docker exec -it -e DISPLAY=:0 drobot_ros2 bash -lc '
+  source /opt/ros/jazzy/setup.bash
+  ruby /opt/ros/jazzy/opt/gz_tools_vendor/bin/gz sim -g --force-version 8
+'
+```
+
+`-g` 는 **GUI 만** 띄워서 돌고 있는 서버에 붙는다.
+
+창이 안 뜨거나 멈추면 GUI 쪽 렌더 엔진이 `ogre2` 라서일 수 있다
+(센서용은 월드에서 `ogre` 로 고쳤지만 GUI 는 별도 설정을 쓴다).
+
+```bash
+  ruby /opt/ros/jazzy/opt/gz_tools_vendor/bin/gz sim -g --render-engine ogre --force-version 8
+```
+
+### 화면이 안 뜰 때
+
+```bash
+echo $DISPLAY                       # 호스트의 디스플레이 번호 확인
+xhost +local:docker                 # 컨테이너에 X 접근 허용 (호스트에서)
+```
+
+`DISPLAY` 가 `:0` 이 아니면 위 명령의 `-e DISPLAY=:0` 을 그 값으로 바꾼다.
+
+### 멈췄을 때 복구
+
+```bash
+./sync.sh stop        # SSH 로 들어가서
+```
+
+---
+
 ## 5. 지금 알려진 문제
 
 | 트랙 | 문제 | 상태 |
