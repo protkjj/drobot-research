@@ -151,7 +151,7 @@
 
   <!-- ========== CAMERA ========== -->
   <gazebo reference="camera_link">
-    <sensor name="camera" type="rgbd"> <gz_frame_id>camera_link</gz_frame_id>
+    <sensor name="camera" type="rgbd"> <gz_frame_id>camera_link_optical</gz_frame_id>
       <update_rate>15</update_rate>
       <always_on>true</always_on>
       <visualize>true</visualize>

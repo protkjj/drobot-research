@@ -131,6 +131,24 @@
     <child link="camera_link"/>
   </joint>
 
+  <!-- 카메라 광학 프레임 (REP-103 / REP-145)
+       Gazebo 의 rgbd 센서는 포인트클라우드를 광학 좌표계로 낸다:
+           x 오른쪽 · y 아래 · z 전방
+       반면 camera_link 는 ROS 본체 좌표계다:
+           x 전방 · y 왼쪽 · z 위
+       둘을 같은 프레임으로 선언하면 축이 두 번 90도 어긋나, 바닥 점이
+       로봇 자신의 높이로 찍히고 장애물은 엉뚱한 자리에 쌓인다.
+       실제로 elevation_layer 가 빈 바닥 전 구간을 0.25 m(= base_link 높이)로
+       보고 0.5 m 장애물은 전혀 못 봤다. 2026-10-02 확인.
+
+       gazebo.xacro 의 gz_frame_id 가 이 프레임을 가리킨다. -->
+  <link name="camera_link_optical"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="-1.5707963267948966 0 -1.5707963267948966"/>
+    <parent link="camera_link"/>
+    <child link="camera_link_optical"/>
+  </joint>
+
   <!-- ==================== IMU (virtual, no mesh) ==================== -->
   <link name="imu_link">
     <inertial>
