@@ -329,7 +329,9 @@ rover=39, fly_over=77, LETHAL=100 으로 보인다. 지형과 inflation 을 구�
 
 ```
 angular_dist_threshold: 0.1 은 5.7° 인데 주석은 45° (Nav2 기본 0.785)
-  파라미터 파일 3개 전부. 회전만 비율이 높은 것과 관련 있을 수 있다 — 미확인
+  -> 2026-10-02 세 파일 모두 0.785 로 고침 (fix/floor-offset). 시뮬에서 yaw 회전 과다를 봤고,
+     0.1 로는 회전이 수렴할 수 없다: 멈추는 데 필요한 각 1.5^2/(2*5.0)=0.225 rad > 허용 0.1 rad.
+     효과는 재측정 필요 (record_run 의 '회전만 %', 전에는 42%)
 규약은 TF 를 base_link 로 정했는데 실제는 base_footprint
   fix/floor-offset 이후 둘은 같은 자리다 (항등 변환). 문서만 맞추면 된다
 track_unknown_space: false — 미관측을 free 로 봐서 장애물 윗면이 착륙 가능으로 보였다 (2절 끝)

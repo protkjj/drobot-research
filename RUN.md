@@ -360,7 +360,7 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 | 공동 | 설정 파일의 에너지 값 31개가 전부 버려져 `DROBOT_ENERGY=derived` 가 적용되지 않았다 (이전 derived 기록은 default 로 계획된 것) | 수정 (`fix/floor-offset`) — derived 결과는 다시 낼 것 |
 | B | `scripts/test_maps.py` 린터 실패 (flake8 94 · pep257 2, 대부분 작은따옴표 규칙) | 동작 무관, 미수정 |
 | A | 런치로 띄울 때만 ogre 초기화가 불안정한 근본 원인 (회피책은 적용됨) | 미규명 |
-| 공동 | `angular_dist_threshold: 0.1` 은 5.7° 인데 주석은 45° (Nav2 기본 0.785) | 미결정 |
+| 공동 | `angular_dist_threshold: 0.1`(5.7°)이라 제자리 회전이 수렴하지 못하고 yaw 회전이 과다했다 | 0.785(45°)로 수정 (`fix/floor-offset`), 재측정 필요 |
 | 공동 | 규약은 TF 를 `base_link` 로 정했는데 실제는 `base_footprint` (바닥 수정 후 둘은 같은 자리) | 문서만 맞추면 됨 |
 | C | INA226 실측 — 지금은 `reference_power.yaml` 추정값 | Phase 2 |
 
