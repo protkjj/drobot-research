@@ -25,3 +25,8 @@ CLAUDE.md
 .vscode/
 frames_*.pdf
 frames_*.gv
+
+# 시뮬 실행 산출물 (저장소에 넣지 않는다)
+sim.log
+tmp.json
+/sim_*.json
