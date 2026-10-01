@@ -94,6 +94,14 @@ void ElevationLayer::onInitialize()
   publish_elevation_ = getParam(node, p + "publish_elevation_grid", publish_elevation_);
   clear_on_reset_ = getParam(node, p + "clear_on_reset", clear_on_reset_);
 
+  // 자체 격자(costmap_)에서 '아직 못 본 칸'의 값.
+  // Costmap2D 기본 생성자는 default_value_ 를 초기화하지 않아서 (nav2 jazzy),
+  // 그대로 두면 resizeMap/resetMaps 가 미정의 값으로 격자를 채운다.
+  // 플래너가 이 격자에서 지형 등급을 읽으므로 (drobot_hybrid_planner 의
+  // LayerTerrainSource) classify() 와 같은 뜻인 NO_INFORMATION 으로 못박는다.
+  // master 에는 영향이 없다 — updateCosts 는 NO_INFORMATION 칸을 건너뛴다.
+  default_value_ = NO_INFORMATION;
+
   matchSize();
   current_ = true;
 
