@@ -222,6 +222,9 @@ do_sim() {
   check_sim_args "$world" "$planner" "$mode" || return 1
   ensure_container || return 1
   local energy="${DROBOT_ENERGY:-default}"   # default | derived (§energy 인자)
+  # Gazebo 가 멈출 때 원인을 보려면 켠다. 로그가 길어져 기본은 꺼둔다.
+  #   DROBOT_GZ_VERBOSE=1 ./sync.sh sim base_map_h0.5 proposed
+  local gzv="${DROBOT_GZ_VERBOSE:+gz_verbose:=true}"
 
   local gui_args=""
   local disp="-e DISPLAY=:0"
@@ -235,7 +238,7 @@ do_sim() {
   ssh "$REMOTE" "docker exec -u \$(id -u):\$(id -g) $disp drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
       nohup ros2 launch drobot_bringup navigation.launch.py \
-        world:=$world planner:=$planner energy:=$energy robot_model:=mesh $gui_args \
+        world:=$world planner:=$planner energy:=$energy robot_model:=mesh $gui_args $gzv \
         > /app/sim.log 2>&1 &
       echo \"launch 시작 — 로그: $REMOTE_DIR/sim.log\"
     '"
