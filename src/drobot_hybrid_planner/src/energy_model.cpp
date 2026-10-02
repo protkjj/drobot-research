@@ -227,9 +227,13 @@ double EnergyModel::cost(const CostAccumulator & acc) const
   //   전환에는 에너지 외의 비용도 있다 — 착륙 실패 위험, 자세 재수립,
   //   제어 복잡도. Wh 로 환산되지 않으므로 횟수 페널티로 둔다.
   //   nSwitches() 는 이륙과 착륙을 각각 세므로 비행 한 구간이면 2·wS 다.
+  //
+  // 여유 페널티는 이미 비용 단위라 그대로 더한다 (ProblemSpec::clearancePenaltyPerMeter).
+  // 에너지가 아니므로 E 항 안에 넣지 않는다 — 꺼져 있으면(기본) 0 이다.
   return w_energy_ * (acc.eMotion() + acc.e_switch) / eRef() +
          w_switch_ * static_cast<double>(acc.nSwitches()) +
-         w_time_ * acc.time_s / tRef();
+         w_time_ * acc.time_s / tRef() +
+         acc.clearance_penalty;
 }
 
 

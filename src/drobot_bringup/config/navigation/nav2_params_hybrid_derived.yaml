@@ -311,6 +311,12 @@ planner_server:
       # (COST_HEIGHT_CONTRACT.md). 이 이름의 레이어가 없으면 master 로 떨어지며 경고한다.
       terrain_layer: "elevation_layer"
       land_only_on_observed: true      # 착륙은 카메라가 본 칸에만 (못 본 장애물 윗면 착륙 방지)
+      # 경로 여유 — 이 modal 의 로버가 설 수 없는 칸까지의 거리로 판정한다 (state_space.hpp).
+      # 밟고넘기에서는 0.7 m 이하 장애물이 '설 수 있는 곳' 이라 여유를 두지 않는다.
+      min_ground_clearance: 0.30       # m — 이보다 가까운 칸은 주행·착륙 불가 (footprint 0.45 m: 내접 0.225 ~ 외접 0.318)
+      clearance_weight: 1.0            # 장애물 바로 옆에서 1 m 당 더하는 비용 (지상 주행 1 m 가 약 0.8)
+      clearance_decay: 2.0             # 1/m — global inflation 의 cost_scaling_factor 와 같은 값
+      clearance_range: 1.0             # m — 이보다 멀면 비용 0 (global inflation_radius 와 같은 값)
       allow_diagonal: true
       check_diagonal_corners: true     # false면 벽 모서리를 관통하는 경로가 나온다
       smooth_path: true

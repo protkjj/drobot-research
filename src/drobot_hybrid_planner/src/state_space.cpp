@@ -10,6 +10,11 @@
 #include <set>
 #include <cmath>
 #include <cstdint>
+#include <functional>
+#include <limits>
+#include <queue>
+#include <utility>
+#include <vector>
 
 // NO_INFORMATION 등 cost 상수는 별도 헤더에 있다.
 // costmap_2d.hpp 만으로는 안 딸려온다.
@@ -141,6 +146,10 @@ ProblemSpec::ProblemSpec(
   const double ground = model_->cost(model_->groundMove(1.0));
   const double air = model_->cost(model_->airMoveHorizontal(1.0, 1e3));
   unit_cost_min_ = allowFly() ? std::min(ground, air) : ground;
+
+  // 경로 여유 지도. 플래너는 계획마다 다시 만든다 (createPlan).
+  // 여유 비용은 0 이상이라 위 휴리스틱 하한은 그대로 admissible 하다.
+  updateClearance();
 }
 
 
@@ -160,6 +169,10 @@ bool ProblemSpec::groundOk(unsigned int mx, unsigned int my) const
   // footprint 가 장애물과 겹치면 어느 modal 이든 못 선다.
   // (밟고넘기도 — 장애물 '위'는 갈 수 있어도 벽에 몸이 끼는 자리는 안 된다)
   if (terrain_->collides(mx, my)) {return false;}
+  // 이 modal 에서 '설 수 없는 지형' 에 너무 붙은 칸 (경로 여유, 꺼져 있으면 통과).
+  // collides() 는 master 의 LETHAL·INSCRIBED 만 보므로, inflation 이 안 붙는
+  // 1.2 m 이하 장애물(상자)에는 몸체 충돌 검사가 없었다 — 이게 그 구멍을 막는다.
+  if (!clearanceOk(mx, my)) {return false;}
   if (!allowClimb()) {
     return terrain_->roverTraversable(mx, my);
   }
@@ -201,15 +214,146 @@ bool ProblemSpec::landingOk(unsigned int mx, unsigned int my) const
 }
 
 
+// ---------------------------------------------------------------------------
+// 경로 여유 — A* 가 로봇을 점으로 보고 장애물에 바짝 붙는 것을 막는다.
+//
+// 2026-10-02 시뮬: 경로가 상자 모서리를 바짝 돌아 로봇이 모서리에 박혔다
+// (base_map_h0.5, 3회 중 2회 aborted, 1회는 뒤집힘). Nav2 순정 플래너는 inflation
+// 비용을 이동 비용에 더해 가운데를 고르지만, 이 플래너는 inflation 을 충돌(253·254)
+// 에만 쓰고, 상자처럼 1.2 m 이하 장애물에는 inflation 자체가 안 붙는다.
+// 그래서 'modal 기준으로 설 수 없는 칸' 까지의 거리를 직접 재서
+//   (1) min_ground_clearance 보다 가까우면 주행·착륙 불가
+//   (2) 가까울수록 clearance_weight·exp(-decay·(d - min)) 만큼 1 m 당 비용 추가
+// 를 건다. 비용은 E·T 와 별도 항(CostAccumulator::clearance_penalty)이다.
+// ---------------------------------------------------------------------------
+bool ProblemSpec::groundObstacle(unsigned int mx, unsigned int my) const
+{
+  // groundOk 의 지형 판정과 같은 기준이다 — roverHLimit 이 우회와 밟고넘기를 가른다.
+  // 밟고넘기(0.7 m)에서는 0.5 m 상자가 장애물이 아니라 올라탈 곳이다.
+  // LayerTerrainSource 는 master LETHAL 칸을 h_impassable 로 돌려주므로 벽도 걸린다.
+  // 미관측 칸은 평지로 읽혀 장애물이 아니다 — '주행은 낙관' 과 같다.
+  return terrain_->heightAt(mx, my) > roverHLimit() + 1e-9;
+}
+
+void ProblemSpec::updateClearance()
+{
+  if (!clearanceEnabled()) {
+    clearance_.clear();
+    return;
+  }
+  const unsigned int nx = costmap_->getSizeInCellsX();
+  const unsigned int ny = costmap_->getSizeInCellsY();
+  const double res = costmap_->getResolution();
+  // 판정에 필요한 거리까지만 잰다. 그보다 먼 칸은 '충분히 멀다' 값으로 남는다.
+  const float far = static_cast<float>(
+    std::max(params_.clearance_range, params_.min_ground_clearance) + res);
+  clearance_.assign(static_cast<size_t>(nx) * ny, far);
+
+  // 장애물 칸 전부에서 동시에 퍼져 나가는 다익스트라 (8방향, 대각은 √2 칸).
+  // 정확한 유클리드 거리보다 최대 8 % 쯤 길게 나오지만 (chamfer 근사) 여유 판정에는 충분하다.
+  using Item = std::pair<float, size_t>;
+  std::priority_queue<Item, std::vector<Item>, std::greater<Item>> open;
+  for (unsigned int my = 0; my < ny; ++my) {
+    for (unsigned int mx = 0; mx < nx; ++mx) {
+      if (!groundObstacle(mx, my)) {continue;}
+      const size_t i = static_cast<size_t>(my) * nx + mx;
+      clearance_[i] = 0.0f;
+      open.push({0.0f, i});
+    }
+  }
+  while (!open.empty()) {
+    const Item top = open.top();
+    open.pop();
+    const float d = top.first;
+    const size_t i = top.second;
+    if (d > clearance_[i]) {continue;}   // 더 짧은 거리로 이미 갱신된 칸
+    const int mx = static_cast<int>(i % nx);
+    const int my = static_cast<int>(i / nx);
+    for (const auto & nb : kNeighbors8) {
+      const int x = mx + nb.dx;
+      const int y = my + nb.dy;
+      const bool inside = x >= 0 && y >= 0 &&
+        x < static_cast<int>(nx) && y < static_cast<int>(ny);
+      if (!inside) {continue;}
+      const float nd = d + static_cast<float>(nb.k * res);
+      if (nd >= far) {continue;}
+      const size_t j = static_cast<size_t>(y) * nx + static_cast<size_t>(x);
+      if (nd < clearance_[j]) {
+        clearance_[j] = nd;
+        open.push({nd, j});
+      }
+    }
+  }
+}
+
+double ProblemSpec::clearance(unsigned int mx, unsigned int my) const
+{
+  if (clearance_.empty() || !inBounds(mx, my)) {
+    return std::numeric_limits<double>::infinity();
+  }
+  return clearance_[static_cast<size_t>(my) * costmap_->getSizeInCellsX() + mx];
+}
+
+bool ProblemSpec::clearanceOk(unsigned int mx, unsigned int my) const
+{
+  if (params_.min_ground_clearance <= 0.0 || clearance_.empty()) {return true;}
+  // 출발점 주변은 풀어 준다 — 이미 장애물 옆에 서 있어도 빠져나갈 수 있게
+  if (relax_r_ > 0) {
+    const int64_t dx = static_cast<int64_t>(mx) - static_cast<int64_t>(relax_mx_);
+    const int64_t dy = static_cast<int64_t>(my) - static_cast<int64_t>(relax_my_);
+    const int64_t r = static_cast<int64_t>(relax_r_);
+    if (dx * dx + dy * dy <= r * r) {return true;}
+  }
+  // float 로 저장한 거리라 아주 작은 여유를 둔다 (6 칸 × 0.05 m = 0.30 이 걸러지지 않게)
+  return clearance(mx, my) >= params_.min_ground_clearance - 1e-6;
+}
+
+double ProblemSpec::clearancePenaltyPerMeter(unsigned int mx, unsigned int my) const
+{
+  if (params_.clearance_weight <= 0.0 || clearance_.empty()) {return 0.0;}
+  const double d = clearance(mx, my);
+  if (d >= params_.clearance_range) {return 0.0;}
+  // Nav2 InflationLayer 와 같은 모양 — 최소 여유에서 최대, 멀어질수록 지수적으로 준다
+  const double x = std::max(0.0, d - params_.min_ground_clearance);
+  return params_.clearance_weight * std::exp(-params_.clearance_decay * x);
+}
+
+double ProblemSpec::segmentClearancePenalty(double ax, double ay, double bx, double by) const
+{
+  if (params_.clearance_weight <= 0.0 || clearance_.empty()) {return 0.0;}
+  // 격자 간격으로 짚으며 groundEdge 와 같은 사다리꼴 규칙으로 더한다
+  const double d = std::hypot(bx - ax, by - ay);
+  const double res = costmap_->getResolution();
+  const int n = std::max(1, static_cast<int>(std::lround(d / res)));
+  const double step = d / n;
+  unsigned int mx = 0, my = 0;
+  const auto at = [&](double x, double y) {
+      return costmap_->worldToMap(x, y, mx, my) ? clearancePenaltyPerMeter(mx, my) : 0.0;
+    };
+  double total = 0.0;
+  double prev = at(ax, ay);
+  for (int i = 1; i <= n; ++i) {
+    const double t = static_cast<double>(i) / n;
+    const double cur = at(ax + (bx - ax) * t, ay + (by - ay) * t);
+    total += 0.5 * (prev + cur) * step;
+    prev = cur;
+  }
+  return total;
+}
+
+
 CostAccumulator ProblemSpec::groundEdge(
   unsigned int mx, unsigned int my,
   unsigned int nx, unsigned int ny, double dist) const
 {
-  if (!allowClimb()) {
-    return model_->groundMove(dist);
-  }
   // 올라가는 스텝에만 등반 비용이 붙는다 (roverClimbMove 주석 참고).
-  return model_->roverClimbMove(dist, terrain(nx, ny) - terrain(mx, my));
+  CostAccumulator acc = allowClimb() ?
+    model_->roverClimbMove(dist, terrain(nx, ny) - terrain(mx, my)) :
+    model_->groundMove(dist);
+  // 경로 여유 — 두 칸 값의 평균 × 거리 (사다리꼴). 꺼져 있으면 0 이라 예전과 같다.
+  acc.clearance_penalty =
+    0.5 * (clearancePenaltyPerMeter(mx, my) + clearancePenaltyPerMeter(nx, ny)) * dist;
+  return acc;
 }
 
 void ProblemSpec::buildAirLevels()

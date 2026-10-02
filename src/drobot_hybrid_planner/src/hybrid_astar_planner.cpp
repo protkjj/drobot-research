@@ -162,6 +162,11 @@ void HybridAStarPlanner::configure(
   // mode_manager 도 같은 값으로 검사한다. 0 이하면 제한 없음.
   spec_params_.max_flight_distance = getD(node, p + "max_flight_segment", 5.0);
   spec_params_.flight_distance_bin = getD(node, p + "flight_distance_bin", 0.25);
+  // 경로 여유 — 기본 0 이면 꺼진다 (ProblemSpec::Params 주석 참고). nav2 yaml 에서 켠다.
+  spec_params_.min_ground_clearance = getD(node, p + "min_ground_clearance", 0.0);
+  spec_params_.clearance_weight = getD(node, p + "clearance_weight", 0.0);
+  spec_params_.clearance_decay = getD(node, p + "clearance_decay", 2.0);
+  spec_params_.clearance_range = getD(node, p + "clearance_range", 1.0);
   spec_params_.allow_diagonal = getB(node, p + "allow_diagonal", true);
   spec_params_.check_diagonal_corners = getB(node, p + "check_diagonal_corners", true);
 
@@ -241,12 +246,15 @@ void HybridAStarPlanner::configure(
     logger_,
     "HybridAStarPlanner '%s' 설정 완료: modal=%s, timeout=%.2fs, "
     "flight_clearance=%.2fm, z_max=%.2fm, 통과가능 h<=%.2fm, "
-    "로버 통과높이<=%.2fm, 비행 1구간<=%.2fm(%u구간), corner_check=%s, 지형=%s, 착륙=%s",
+    "로버 통과높이<=%.2fm, 비행 1구간<=%.2fm(%u구간), corner_check=%s, 지형=%s, 착륙=%s, "
+    "여유>=%.2fm(비용 %.2f/m, %.1fm 까지)",
     name_.c_str(), modal_name_.c_str(), timeout_s_, spec_params_.flight_clearance,
     spec_->zMax(), spec_->hLimit(), spec_->roverHLimit(),
     spec_params_.max_flight_distance, spec_->numFlightBins(),
     spec_params_.check_diagonal_corners ? "on" : "off",
-    terrain_desc.c_str(), spec_params_.land_only_on_observed ? "관측 칸만" : "어디든");
+    terrain_desc.c_str(), spec_params_.land_only_on_observed ? "관측 칸만" : "어디든",
+    spec_params_.min_ground_clearance, spec_params_.clearance_weight,
+    spec_params_.clearance_range);
 
   // 설정 충돌 경고 — 벤치마크에서 실제로 문제가 됐던 조합
   if (spec_->hLimit() <= spec_params_.rover_max_height) {
@@ -491,8 +499,14 @@ bool HybridAStarPlanner::segmentCost(
 CostAccumulator HybridAStarPlanner::groundSegmentCost(
   const Waypoint & a, const Waypoint & b, double d) const
 {
+  // 경로 여유 비용 — 격자 경로(groundEdge)와 같은 규칙으로 직선을 따라 잰다.
+  // 빠뜨리면 스무딩이 '여유 비용이 없는 직선' 을 더 싸다고 보고 모서리를 다시 자른다.
+  const double clearance_cost = spec_->segmentClearancePenalty(a.x, a.y, b.x, b.y);
+
   if (!spec_->allowClimb()) {
-    return energy_.groundMove(d);
+    CostAccumulator acc = energy_.groundMove(d);
+    acc.clearance_penalty = clearance_cost;
+    return acc;
   }
 
   // rover_climb 에서는 직선이 장애물 위를 지날 수 있다.
@@ -520,6 +534,7 @@ CostAccumulator HybridAStarPlanner::groundSegmentCost(
     total += energy_.roverClimbMove(step, h - prev_h);
     prev_h = h;
   }
+  total.clearance_penalty = clearance_cost;
   return total;
 }
 
@@ -711,10 +726,14 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
   // 로봇이 벽에 붙어 있어도 빠져나갈 수 있게 출발점 주변의 INSCRIBED 를 연다
   // (LayerTerrainSource::relaxInscribedAround 주석 참고).
   const double res = costmap_->getResolution();
+  const auto relax_cells = static_cast<unsigned int>(std::ceil(start_relax_radius_ / res));
   if (layer_terrain_) {
-    layer_terrain_->relaxInscribedAround(
-      s_start.mx, s_start.my, static_cast<unsigned int>(std::ceil(start_relax_radius_ / res)));
+    layer_terrain_->relaxInscribedAround(s_start.mx, s_start.my, relax_cells);
   }
+  // 경로 여유도 같은 반경에서 풀고, 지금 지형으로 거리 지도를 다시 만든다.
+  // (master 잠금 안이라 계획 도중에 지형이 바뀌지 않는다)
+  spec_->relaxClearanceAround(s_start.mx, s_start.my, relax_cells);
+  spec_->updateClearance();
 
   if (!spec_->groundOk(s_start.mx, s_start.my)) {
     RCLCPP_WARN(
@@ -782,8 +801,8 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
 
   RCLCPP_INFO(
     logger_,
-    "경로 생성: C=%.4f (E=%.3fWh T=%.1fs 전환=%d) | %zu 노드 확장, %zu 점, %.3fs",
-    final_cost, r.acc.eTotal(), r.acc.time_s, r.acc.nSwitches(),
+    "경로 생성: C=%.4f (E=%.3fWh T=%.1fs 전환=%d 여유비용=%.3f) | %zu 노드 확장, %zu 점, %.3fs",
+    final_cost, r.acc.eTotal(), r.acc.time_s, r.acc.nSwitches(), r.acc.clearance_penalty,
     r.n_expanded, wps.size(), elapsed);
 
   // 탐색은 timeout 안에 끝나도 후처리가 늦으면 전체가 제약을 넘는다.
