@@ -126,7 +126,14 @@ local_costmap:
       # 직사각형 footprint (robot_radius 대신)
       # 로봇 실제: 0.30 x 0.40m → 안전마진 포함 0.40 x 0.40m
       footprint: "[[0.20, 0.20], [0.20, -0.20], [-0.20, -0.20], [-0.20, 0.20]]"
-      plugins: ["voxel_layer", "elevation_layer", "inflation_layer"]
+      # elevation_layer 는 뺐다 (아래 파라미터 블록은 다시 넣을 때를 위해 남긴다).
+      # ElevationLayer 가 rolling window 를 지원하지 않아, 로봇을 따라 움직이는
+      # 이 창에서는 원점이 처음 위치에 고정된 채 같은 칸 번호로 써서 높이가
+      # 엉뚱한 칸에 찍히고 쌓였다. RViz 에서 빈 바닥이 보라색 덩어리로 뒤덮였고,
+      # 컨트롤러가 그걸 피하느라 명령의 64% 가 제자리 회전, 205 s 에 3 m 를 갔다.
+      # 장애물은 voxel_layer(LiDAR)가 보고, 지형 등급은 플래너가 global 에서 읽는다.
+      # ElevationLayer 에 updateOrigin 이 들어가면 다시 넣을 것. 2026-10-02
+      plugins: ["voxel_layer", "inflation_layer"]
 
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
