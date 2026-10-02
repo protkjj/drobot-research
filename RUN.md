@@ -154,9 +154,11 @@ mode_manager 가 한 것이다. 둘이 어긋나면 그 자체가 결과다.
 
 원인 두 가지를 찾아 고쳤다.
 
-- **렌더 엔진**: 월드의 `<render_engine>` 이 `ogre2` 면 RTX 5070 Ti + gz-sim 8.11
-  에서 렌더 스레드 초기화가 안 끝난다. 월드 12개를 `ogre` (v1) 로 바꿨다.
-  **월드를 새로 만들 때 `ogre2` 를 쓰지 말 것.**
+- **렌더 엔진 — 판단이 틀렸었다 (2026-10-02 정정)**: 처음엔 `ogre2` 가 RTX 5070 Ti 에서
+  멈춘다고 보고 월드 12개를 `ogre`(v1) 로 바꿨다. 그런데 아래 `-u` 문제를 고친 뒤 다시 재니
+  `ogre2` 가 3/3 정상이었다. 두 원인을 동시에 고쳐서 섞어 판단한 것이다.
+  지금은 launch 가 `render_engine:=ogre2` 를 기본으로 월드 사본에 덮어쓴다 (track-b).
+  `ogre`(v1) 는 RTX 4070 SUPER 에서 라이다가 모든 빔에 0.5 m 를 내 쓸 수 없었다.
 - **실행 사용자**: `docker exec -u $(id -u):$(id -g)` 로 `ros2 launch` 를 띄우면
   같은 증상이 난다. root 로 띄우면 매번 성공한다 (3/3 vs 전부 실패).
   `sync.sh` 의 `do_sim` 에서 `-u` 를 뺐다. **빌드는 `-u` 를 유지해야 한다**
@@ -185,8 +187,11 @@ UID 그룹과 /dev/dri 권한, 컨테이너·GPU 재시작, 노드 기동 지연
 **바꾼 걸 시험하기 전에 설치본에 들어갔는지 확인하는 습관을 들일 것.**
 
 ```bash
-docker exec drobot_ros2 bash -lc 'grep render_engine /app/install/drobot_description/share/drobot_description/worlds/base_map_h0.5.sdf'
+grep -m1 render_engine ~/Desktop/drobot-research/sim.log   # [INFO] render_engine=ogre2 -> ...
 ```
+
+월드 파일에는 아직 `ogre` 가 적혀 있지만 launch 가 사본을 만들어 덮어쓴다.
+그래서 설치본 월드를 grep 하면 안 되고, 실제로 쓴 값은 `sim.log` 에서 본다.
 
 ### 4-3. 파이프에 물리면 출력이 안 보인다
 
@@ -351,15 +356,19 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 
 | 트랙 | 문제 | 상태 |
 |---|---|---|
-| A | 빈 바닥이 0.25 m 로 측정돼 fly_over 로 분류됨 — URDF `base_footprint_joint` z=0.25 가 원인 (gz 실측 z=-0.2518) | `fix/floor-offset` 에서 수정, 시뮬 재측정 대기 |
-| 공동 | 카메라(실제 0.36 m)가 0.5 m 장애물 윗면을 못 봄 → 미관측 → `track_unknown_space: false` 라 free → 착륙 가능으로 보임 | 플래너에서 착륙만 관측 칸으로 제한 (`fix/floor-offset`), 테스트 대기 |
-| B | 플래너가 inflation 값을 지형 등급으로 읽음 — 벽에서 0.45 m 이내가 fly_over 로 읽힘 | 수정 — 지형은 ElevationLayer 에서 읽음 (`fix/floor-offset`), 테스트 대기 |
+| A | 빈 바닥이 0.25 m 로 측정돼 fly_over 로 분류됨 — URDF `base_footprint_joint` z=0.25 가 원인 (gz 실측 z=-0.2518) | 수정, 시뮬 검증 완료 |
+| 공동 | 카메라(실제 0.36 m)가 0.5 m 장애물 윗면·뒤를 못 봄 → 착륙만 관측 칸으로 제한했다 | **대가: 카메라보다 높은 장애물 뒤로는 날아서 착륙할 수 없다.** 비행이 거의 안 나올 수 있음 — 팀 결정 필요 (HANDOFF 2-2) |
+| B | 플래너가 inflation 값을 지형 등급으로 읽음 — 벽에서 0.45 m 이내가 fly_over 로 읽힘 | 수정, 테스트·시뮬 확인 |
+| B | 출발 칸이 벽 옆(253)이면 계획 실패 (위 수정의 부작용) | track-b 에서 출발점 0.35 m 안 253 완화. 테스트 없음 |
+| B | 컨트롤러에 듬성한 꺾임점 + yaw 0 경로를 넘겨 로봇이 좌우로 흔들림 | track-b 에서 0.05 m 간격·진행 방향 yaw 로 수정 (회전만 76% -> 7%, B 측정) |
+| A | ElevationLayer 가 rolling window 를 지원하지 않아 local costmap 에 높이가 엉뚱하게 쌓임 | track-b 에서 local costmap 에서 제외 (회피). `updateOrigin` 구현이 근본 해결 |
+| B | derived 에서 출발→목표 19.4 m 를 한 번에 날았다 / 휴리스틱이 admissible 하지 않았다 | track-b 에서 비행 1구간 5 m 제약 + 휴리스틱 하한 수정 |
 | B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
 | B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
 | B | 착륙점이 장애물 한가운데로 잡힌다 | 원인은 미관측 → free. 위 착륙 제한으로 대응, 재측정 필요 |
 | 공동 | 설정 파일의 에너지 값 31개가 전부 버려져 `DROBOT_ENERGY=derived` 가 적용되지 않았다 (이전 derived 기록은 default 로 계획된 것) | 수정 (`fix/floor-offset`) — derived 결과는 다시 낼 것 |
 | B | `scripts/test_maps.py` 린터 실패 (flake8 94 · pep257 2, 대부분 작은따옴표 규칙) | 동작 무관, 미수정 |
-| A | 런치로 띄울 때만 ogre 초기화가 불안정한 근본 원인 (회피책은 적용됨) | 미규명 |
+| A | 렌더 엔진 — RTX 5070 Ti 에서 ogre2 가 멈춘다던 판단 | 틀렸음. ogre2 3/3 정상 (2026-10-02). 기본값 ogre2 |
 | 공동 | `angular_dist_threshold: 0.1`(5.7°)이라 제자리 회전이 수렴하지 못하고 yaw 회전이 과다했다 | 0.785(45°)로 수정 (`fix/floor-offset`), 재측정 필요 |
 | 공동 | 규약은 TF 를 `base_link` 로 정했는데 실제는 `base_footprint` (바닥 수정 후 둘은 같은 자리) | 문서만 맞추면 됨 |
 | C | INA226 실측 — 지금은 `reference_power.yaml` 추정값 | Phase 2 |

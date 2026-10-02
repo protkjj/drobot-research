@@ -144,12 +144,16 @@ def launch_setup(context):
         world_file = next((p for p in fallback_candidates if os.path.exists(p)), fallback_candidates[0])
 
     # 센서 렌더 엔진. 월드 파일에는 ogre(v1) 가 박혀 있다 (RTX 5070 Ti 에서
-    # ogre2 가 멈춰서 바꾼 것). 그런데 ogre v1 에서는 gpu_lidar 가 모든 빔에
+    # ogre2 가 멈춘다고 보고 바꾼 것). 그런데 ogre v1 에서는 gpu_lidar 가 모든 빔에
     # range_min(0.5 m) 을 낸다 — LiDAR 를 1 m 올려도 같고, ogre2 로 바꾸면
     # 0.9~4.4 m 실제 거리가 나온다 (2026-10-02 실측, RTX 4070 SUPER).
     # LiDAR 가 죽으면 SLAM·obstacle_layer·elevation_layer 가 로봇 둘레 0.5 m
-    # 에 가짜 벽을 그린다. 그래서 기본을 ogre2 로 두고, ogre2 가 멈추는
-    # 머신에서만 render_engine:=ogre 로 내린다.
+    # 에 가짜 벽을 그린다. 그래서 기본을 ogre2 로 둔다.
+    #
+    # RTX 5070 Ti(gz-sim 8.11) 에서도 ogre2 는 3/3 정상이었다 (2026-10-02,
+    # 라이다 0.91~6.99 m). 예전에 'ogre2 가 멈춘다' 고 본 것은 같이 겪은
+    # 'docker exec -u' 문제(sync.sh 에서 고침)와 섞인 판단이었다.
+    # ogre 는 ogre2 가 정말 안 되는 머신을 위한 대비책으로만 남긴다.
     render_engine = context.launch_configurations.get('render_engine', 'ogre2')
     if os.path.exists(world_file):
         world_file = with_render_engine(world_file, render_engine)
@@ -514,7 +518,8 @@ def generate_launch_description():
             description=(
                 'Gazebo 센서 렌더 엔진 (월드 파일 값을 덮어쓴다). ogre2 가 기본 — '
                 'ogre(v1) 에서는 gpu_lidar 가 모든 빔에 range_min 을 내 LiDAR 가 '
-                '사실상 죽는다. ogre2 가 멈추는 머신(RTX 5070 Ti + gz-sim 8.11)에서만 ogre.'
+                '사실상 죽었다 (RTX 4070 SUPER). RTX 5070 Ti 에서도 ogre2 정상 (3/3). '
+                'ogre 는 ogre2 가 안 되는 머신의 대비책.'
             ),
         ),
         OpaqueFunction(function=launch_setup),
