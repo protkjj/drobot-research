@@ -154,6 +154,8 @@ private:
 
   EnergyModel energy_;
   std::shared_ptr<TerrainSource> terrain_;
+  /// terrain_ 이 LayerTerrainSource 일 때 같은 객체 (출발점 완화용). 아니면 nullptr
+  std::shared_ptr<LayerTerrainSource> layer_terrain_;
   std::string terrain_layer_ = "elevation_layer";   ///< 지형 등급을 읽을 costmap 레이어 이름
   std::unique_ptr<ProblemSpec> spec_;
   ProblemSpec::Params spec_params_;
@@ -164,6 +166,8 @@ private:
   bool smooth_path_ = true;
   int smoothing_max_passes_ = 30;
   bool publish_switch_plan_ = true;
+  double start_relax_radius_ = 0.35;   ///< m — 출발점 주변 INSCRIBED 를 막지 않는 반경
+  double goal_tolerance_ = 0.5;        ///< m — 목표 칸이 막혔을 때 대신 쓸 칸을 찾는 반경
 
   rclcpp_lifecycle::LifecyclePublisher<drobot_msgs::msg::ModeSwitchPlan>::SharedPtr
     switch_plan_pub_;

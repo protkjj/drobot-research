@@ -563,6 +563,48 @@ TEST(HeuristicTest, AdmissibleWhenFlightIsCheaperPerMeter)
   EXPECT_DOUBLE_EQ(rover.unitCostMin(), ground);
 }
 
+// ---------------------------------------------------------------------------
+// 출발점 INSCRIBED 완화 · 목표 허용 반경
+// ---------------------------------------------------------------------------
+TEST(StartGoalTest, RelaxOpensInscribedOnlyNearStart)
+{
+  // 로봇이 벽에 붙어 서 있는 상황: 출발 칸과 그 주변이 253
+  nav2_costmap_2d::Costmap2D master(kNx, kNy, kRes, 0.0, 0.0, kCostFree);
+  nav2_costmap_2d::Costmap2D grade(kNx, kNy, kRes, 0.0, 0.0, kCostFree);
+  for (unsigned int mx = 4; mx <= 12; ++mx) {
+    master.setCost(mx, 5, nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE);
+  }
+  master.setCost(8, 6, nav2_costmap_2d::LETHAL_OBSTACLE);   // 벽 자체
+
+  LayerTerrainSource src(&grade, &master, LayerTerrainSource::Config{});
+  EXPECT_TRUE(src.collides(8, 5)) << "완화 전에는 충돌";
+
+  src.relaxInscribedAround(8, 5, 2);
+  EXPECT_FALSE(src.collides(8, 5)) << "출발 칸";
+  EXPECT_FALSE(src.collides(10, 5)) << "반경 2칸 안";
+  EXPECT_TRUE(src.collides(11, 5)) << "반경 밖의 253 은 그대로 충돌";
+  EXPECT_TRUE(src.collides(8, 6)) << "LETHAL 은 완화하지 않는다";
+
+  src.relaxInscribedAround(0, 0, 0);
+  EXPECT_TRUE(src.collides(8, 5)) << "반경 0 이면 해제";
+}
+
+TEST_F(StateSpaceTest, NearestGroundCellFindsClosestReachableCell)
+{
+  const ProblemSpec spec = makeSpec(Modal::Hybrid);
+  unsigned int ox = 0, oy = 0;
+  // 장애물 열(kWallX) 위의 목표 -> 바로 옆 칸
+  ASSERT_TRUE(spec.nearestGroundCell(kWallX, kMidY, 3, ox, oy));
+  EXPECT_EQ(oy, kMidY);
+  EXPECT_TRUE(ox == kWallX - 1 || ox == kWallX + 1);
+  // 이미 갈 수 있는 칸이면 그대로
+  ASSERT_TRUE(spec.nearestGroundCell(2, 2, 3, ox, oy));
+  EXPECT_EQ(ox, 2u);
+  EXPECT_EQ(oy, 2u);
+  // 반경 0 이면 대신 쓸 칸이 없다
+  EXPECT_FALSE(spec.nearestGroundCell(kWallX, kMidY, 0, ox, oy));
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

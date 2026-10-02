@@ -154,6 +154,8 @@ void HybridAStarPlanner::configure(
   smooth_path_ = getB(node, p + "smooth_path", smooth_path_);
   smoothing_max_passes_ = getI(node, p + "smoothing_max_passes", smoothing_max_passes_);
   publish_switch_plan_ = getB(node, p + "publish_mode_switch_plan", publish_switch_plan_);
+  start_relax_radius_ = getD(node, p + "start_relax_radius", start_relax_radius_);
+  goal_tolerance_ = getD(node, p + "goal_tolerance", goal_tolerance_);
 
   spec_params_.flight_clearance = getD(node, p + "flight_clearance", 0.8);
   // 비행 한 구간 최대 거리 — 인터페이스 규약 SSOT max_flight_distance.
@@ -214,7 +216,8 @@ void HybridAStarPlanner::configure(
     grade = nullptr;
   }
   if (grade != nullptr) {
-    terrain_ = std::make_shared<LayerTerrainSource>(grade, costmap_, tcfg);
+    layer_terrain_ = std::make_shared<LayerTerrainSource>(grade, costmap_, tcfg);
+    terrain_ = layer_terrain_;
   } else {
     // 대비책 — 예전 방식. 관측 여부를 모르므로 land_only_on_observed 도 효과가 없다.
     RCLCPP_WARN(
@@ -260,6 +263,7 @@ void HybridAStarPlanner::cleanup()
   RCLCPP_INFO(logger_, "HybridAStarPlanner '%s' 정리", name_.c_str());
   spec_.reset();
   terrain_.reset();
+  layer_terrain_.reset();
   switch_plan_pub_.reset();
 }
 
@@ -704,13 +708,44 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
   s_start.mode = GROUND;
   s_goal.mode = GROUND;
 
+  // 로봇이 벽에 붙어 있어도 빠져나갈 수 있게 출발점 주변의 INSCRIBED 를 연다
+  // (LayerTerrainSource::relaxInscribedAround 주석 참고).
+  const double res = costmap_->getResolution();
+  if (layer_terrain_) {
+    layer_terrain_->relaxInscribedAround(
+      s_start.mx, s_start.my, static_cast<unsigned int>(std::ceil(start_relax_radius_ / res)));
+  }
+
   if (!spec_->groundOk(s_start.mx, s_start.my)) {
-    RCLCPP_WARN(logger_, "시작점이 로버가 설 수 없는 셀이다");
+    RCLCPP_WARN(
+      logger_, "시작점 (%.2f, %.2f) 이 로버가 설 수 없는 셀이다 (master cost %d, 높이 %.2f m)",
+      start.pose.position.x, start.pose.position.y,
+      static_cast<int>(costmap_->getCost(s_start.mx, s_start.my)),
+      spec_->terrain(s_start.mx, s_start.my));
     return empty;
   }
   if (!spec_->groundOk(s_goal.mx, s_goal.my)) {
-    RCLCPP_WARN(logger_, "목표점이 로버가 설 수 없는 셀이다");
-    return empty;
+    // Nav2 순정 플래너의 tolerance 처럼, 가까운 갈 수 있는 칸을 대신 목표로 쓴다.
+    // 목표 칸이 표시용 원판·센서 잡음으로 막혀도 계획이 통째로 실패하지 않게.
+    const int goal_cost = costmap_->getCost(s_goal.mx, s_goal.my);
+    const double goal_h = spec_->terrain(s_goal.mx, s_goal.my);
+    unsigned int gx = 0, gy = 0;
+    if (!spec_->nearestGroundCell(
+        s_goal.mx, s_goal.my, static_cast<unsigned int>(goal_tolerance_ / res), gx, gy))
+    {
+      RCLCPP_WARN(
+        logger_, "목표점 (%.2f, %.2f) 이 로버가 설 수 없는 셀이고 %.2f m 안에 대신 쓸 칸도 없다 "
+        "(master cost %d, 높이 %.2f m)",
+        goal.pose.position.x, goal.pose.position.y, goal_tolerance_, goal_cost, goal_h);
+      return empty;
+    }
+    double wx = 0.0, wy = 0.0;
+    costmap_->mapToWorld(gx, gy, wx, wy);
+    RCLCPP_INFO(
+      logger_, "목표 칸이 막혀 있어 (%.2f, %.2f) 로 옮긴다 (master cost %d, 높이 %.2f m)",
+      wx, wy, goal_cost, goal_h);
+    s_goal.mx = gx;
+    s_goal.my = gy;
   }
 
   const auto t0 = steady_clock::now();

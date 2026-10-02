@@ -184,10 +184,29 @@ public:
   bool collides(unsigned int mx, unsigned int my) const override;
   bool observed(unsigned int mx, unsigned int my) const override;
 
+  /// (mx, my) 에서 radius_cells 안의 INSCRIBED(253) 는 충돌로 치지 않는다.
+  ///
+  /// 로봇이 이미 벽에 붙어 서 있으면(제어 오차·SLAM 보정) 출발 칸부터 253 이라
+  /// '시작점이 로버가 설 수 없는 셀' 로 계획이 통째로 실패했다 (base_map_h0.5,
+  /// 오른쪽 벽 옆에서 abort). Nav2 순정 플래너도 출발 칸은 따지지 않는다.
+  /// 출발점 주변에서만 '빠져나갈 길' 을 열어 준다. LETHAL(254) 은 그대로 막는다.
+  /// radius_cells 가 0 이면 해제.
+  void relaxInscribedAround(unsigned int mx, unsigned int my, unsigned int radius_cells)
+  {
+    relax_mx_ = mx;
+    relax_my_ = my;
+    relax_r_ = radius_cells;
+  }
+
 private:
+  bool relaxed(unsigned int mx, unsigned int my) const;
+
   nav2_costmap_2d::Costmap2D * grade_;
   nav2_costmap_2d::Costmap2D * master_;
   Config cfg_;
+  unsigned int relax_mx_ = 0;
+  unsigned int relax_my_ = 0;
+  unsigned int relax_r_ = 0;
 };
 
 
@@ -238,6 +257,12 @@ public:
   bool inBounds(unsigned int mx, unsigned int my) const;
   double terrain(unsigned int mx, unsigned int my) const;
   bool groundOk(unsigned int mx, unsigned int my) const;
+
+  /// (mx, my) 에서 radius_cells 안의 가장 가까운 groundOk 셀을 (ox, oy) 에 담는다.
+  /// (mx, my) 자체가 groundOk 면 그대로. 없으면 false.
+  bool nearestGroundCell(
+    unsigned int mx, unsigned int my, unsigned int radius_cells,
+    unsigned int & ox, unsigned int & oy) const;
   /// 공중에서 이 셀로 내려앉을 수 있는가 — groundOk 에 관측 조건을 더한다
   bool landingOk(unsigned int mx, unsigned int my) const;
 

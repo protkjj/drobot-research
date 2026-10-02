@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <set>
 #include <cmath>
+#include <cstdint>
 
 // NO_INFORMATION 등 cost 상수는 별도 헤더에 있다.
 // costmap_2d.hpp 만으로는 안 딸려온다.
@@ -84,8 +85,18 @@ bool LayerTerrainSource::roverTraversable(unsigned int mx, unsigned int my) cons
 bool LayerTerrainSource::collides(unsigned int mx, unsigned int my) const
 {
   const unsigned char c = master_->getCost(mx, my);
-  return c == nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE ||
-         c == nav2_costmap_2d::LETHAL_OBSTACLE;
+  if (c == nav2_costmap_2d::LETHAL_OBSTACLE) {return true;}
+  // 출발점 주변의 253 은 빠져나갈 수 있게 둔다 (relaxInscribedAround)
+  return c == nav2_costmap_2d::INSCRIBED_INFLATED_OBSTACLE && !relaxed(mx, my);
+}
+
+bool LayerTerrainSource::relaxed(unsigned int mx, unsigned int my) const
+{
+  if (relax_r_ == 0) {return false;}
+  const int64_t dx = static_cast<int64_t>(mx) - static_cast<int64_t>(relax_mx_);
+  const int64_t dy = static_cast<int64_t>(my) - static_cast<int64_t>(relax_my_);
+  const int64_t r = static_cast<int64_t>(relax_r_);
+  return dx * dx + dy * dy <= r * r;
 }
 
 bool LayerTerrainSource::observed(unsigned int mx, unsigned int my) const
@@ -156,6 +167,28 @@ bool ProblemSpec::groundOk(unsigned int mx, unsigned int my) const
   // 1e-9 여유는 0.70m 장애물이 부동소수 오차로 걸러지는 걸 막기 위함.
   const double h = terrain_->heightAt(mx, my);
   return h <= roverHLimit() + 1e-9;
+}
+
+bool ProblemSpec::nearestGroundCell(
+  unsigned int mx, unsigned int my, unsigned int radius_cells,
+  unsigned int & ox, unsigned int & oy) const
+{
+  const int64_t r = static_cast<int64_t>(radius_cells);
+  int64_t best = -1;
+  for (int64_t dy = -r; dy <= r; ++dy) {
+    for (int64_t dx = -r; dx <= r; ++dx) {
+      const int64_t d2 = dx * dx + dy * dy;
+      if (d2 > r * r || (best >= 0 && d2 >= best)) {continue;}
+      const int64_t x = static_cast<int64_t>(mx) + dx;
+      const int64_t y = static_cast<int64_t>(my) + dy;
+      if (x < 0 || y < 0) {continue;}
+      if (!groundOk(static_cast<unsigned int>(x), static_cast<unsigned int>(y))) {continue;}
+      best = d2;
+      ox = static_cast<unsigned int>(x);
+      oy = static_cast<unsigned int>(y);
+    }
+  }
+  return best >= 0;
 }
 
 bool ProblemSpec::landingOk(unsigned int mx, unsigned int my) const
