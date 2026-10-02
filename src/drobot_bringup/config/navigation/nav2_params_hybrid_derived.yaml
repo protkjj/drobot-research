@@ -275,7 +275,12 @@ global_costmap:
         max_obstacle_height: 3.0
         max_sensor_range: 4.0
         publish_elevation_grid: true   # RViz 확인용
-        clear_on_reset: true
+        # 복구 동작(clear_entirely_global_costmap)이 지형 기억을 지우지 않게 한다.
+        # true 였을 때 계획 시간 초과 -> 복구가 costmap 전체 삭제 -> 본 벽을 다 잊고
+        # 벽을 뚫는 직선 경로 -> 벽 앞에서 다시 보고 우회 계획이 또 시간 초과 ... 를
+        # 되풀이하며 medium_open 에서 한 자리를 맴돌았다 (2026-10-02, 185 s 동안 15 번 삭제).
+        # 이 연구의 월드는 정적이라 기억을 유지하는 편이 맞다. 다른 레이어는 그대로 지워진다.
+        clear_on_reset: false
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

@@ -385,7 +385,9 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 | C | 비행 착륙 직후 aborted (1회) | 원인 미확인 — 로그를 남기며 재현 필요 |
 | 공동 | `xy_goal_tolerance: 0.75` 라 목표 0.75 m 앞에서 succeeded | **0.30 으로 수정** (checker·DWB 둘 다) — 0.27~0.28 m 에서 도착 |
 | A | 목표 표시 원판(goal_marker)이 지형으로 읽혀 목표 칸이 막힌다 → 목표가 0.3~0.4 m 옮겨짐 | **원판 2 mm 로 수정** (생성기 + 월드 6개) |
-| B | medium_open 에서 계획이 2 s 제한을 회차당 13~22 번 넘기고 로봇이 한 곳을 맴돈다 (180 s timeout) | **경로 여유와 무관** (꺼도 같음). 원인 미조사 |
+| B | medium_open 에서 로봇이 한 곳을 맴돈다 | 원인: 계획 시간 초과 → 복구가 costmap 삭제 → ElevationLayer 기억 소실 → 벽 뚫는 경로. `clear_on_reset: false` 로 맴돌기는 없앰 |
+| B | **벽을 아는 미로(medium_open)에서 우회 경로를 2 s 안에 못 찾는다** → aborted | 진짜 병목. 휴리스틱 개선·timeout 등 결정 필요 (HANDOFF 0-3) |
+| 공동 | launch 가 출발점 (2, 1)·마커 목표 (2, 10) 를 모든 월드에 고정 — `spawn_positions.yaml` 을 안 읽는다 | 미수정 |
 | B | 경로 여유 비용이 계획 시간을 2~7 배 늘린다 (휴리스틱에 안 들어감) | 큰 맵에서 가중치·timeout 조정 검토 |
 | B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
 | B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
