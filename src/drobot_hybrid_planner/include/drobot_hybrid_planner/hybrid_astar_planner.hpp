@@ -54,6 +54,24 @@ struct Waypoint
   uint8_t mode = GROUND;
 };
 
+/// 꺾임점(waypoint) 경로를 컨트롤러가 쓰는 nav_msgs/Path 로 바꾼다.
+///
+/// 왜 촘촘하게 하나:
+///     스무딩 결과는 꺾이는 점 몇 개(몇 m 간격)뿐이다. Nav2 컨트롤러(DWB 의
+///     PathDist·PathAlign, RotationShim)는 경로가 격자 간격으로 이어져 있다고 보고
+///     '경로까지의 거리' 와 '경로 방향' 을 잰다. 점이 듬성하면 점 사이 구간이
+///     경로로 안 잡혀 로봇이 제자리에서 좌우로 흔들렸다 (205 s 동안 13 바퀴,
+///     회전만 76 %, 전진 3 m). 그래서 step 간격으로 보간한다.
+/// 왜 방향을 넣나:
+///     예전에는 모든 점이 orientation.w = 1 (yaw 0, +x) 이었다. 진행 방향과
+///     무관한 값이라 방향 정렬 critic 이 엉뚱한 쪽을 가리켰다.
+///
+/// 이착륙처럼 같은 (x, y) 에서 고도만 바뀌는 점은 보간하지 않고 그대로 둔다.
+/// 그 점의 yaw 는 직전 진행 방향을 잇는다.
+nav_msgs::msg::Path densifyPath(
+  const std::vector<Waypoint> & wps, double step, const std_msgs::msg::Header & header);
+
+
 class HybridAStarPlanner : public nav2_core::GlobalPlanner
 {
 public:

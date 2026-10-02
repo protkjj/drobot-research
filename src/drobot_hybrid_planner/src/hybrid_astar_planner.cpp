@@ -78,6 +78,56 @@ nav2_costmap_2d::Costmap2D * findLayerGrid(
 }  // namespace
 
 
+nav_msgs::msg::Path densifyPath(
+  const std::vector<Waypoint> & wps, double step, const std_msgs::msg::Header & header)
+{
+  nav_msgs::msg::Path msg;
+  msg.header = header;
+  if (wps.empty()) {return msg;}
+  step = std::max(step, 1e-3);
+
+  const auto push = [&](double x, double y, double z, double yaw) {
+      geometry_msgs::msg::PoseStamped ps;
+      ps.header = header;
+      ps.pose.position.x = x;
+      ps.pose.position.y = y;
+      // 비행 구간의 고도를 z에 담는다. 지상 컨트롤러는 z를 무시하고,
+      // mode_manager 는 ModeSwitchPlan 으로 이착륙을 판단한다.
+      ps.pose.position.z = z;
+      ps.pose.orientation.z = std::sin(yaw / 2.0);
+      ps.pose.orientation.w = std::cos(yaw / 2.0);
+      msg.poses.push_back(ps);
+    };
+
+  // 첫 점의 yaw 는 처음으로 수평 이동하는 구간의 방향
+  double yaw = 0.0;
+  for (size_t i = 0; i + 1 < wps.size(); ++i) {
+    const double dx = wps[i + 1].x - wps[i].x;
+    const double dy = wps[i + 1].y - wps[i].y;
+    if (std::hypot(dx, dy) > 1e-9) {yaw = std::atan2(dy, dx); break;}
+  }
+
+  for (size_t i = 0; i + 1 < wps.size(); ++i) {
+    const Waypoint & a = wps[i];
+    const Waypoint & b = wps[i + 1];
+    const double dx = b.x - a.x;
+    const double dy = b.y - a.y;
+    const double len = std::hypot(dx, dy);
+    if (len > 1e-9) {yaw = std::atan2(dy, dx);}
+    push(a.x, a.y, a.z, yaw);
+    // a 와 b 사이를 step 간격으로 채운다 (b 는 다음 구간에서 넣는다)
+    const int n = static_cast<int>(std::floor(len / step - 1e-9));
+    for (int k = 1; k <= n; ++k) {
+      const double t = k * step / len;
+      push(a.x + t * dx, a.y + t * dy, a.z + t * (b.z - a.z), yaw);
+    }
+  }
+  const Waypoint & last = wps.back();
+  push(last.x, last.y, last.z, yaw);
+  return msg;
+}
+
+
 // ---------------------------------------------------------------------------
 // 생명주기
 // ---------------------------------------------------------------------------
@@ -519,21 +569,7 @@ std::vector<Waypoint> HybridAStarPlanner::smooth(const std::vector<Waypoint> & p
 nav_msgs::msg::Path HybridAStarPlanner::toPathMsg(
   const std::vector<Waypoint> & wps, const std_msgs::msg::Header & header) const
 {
-  nav_msgs::msg::Path msg;
-  msg.header = header;
-  msg.poses.reserve(wps.size());
-  for (const auto & w : wps) {
-    geometry_msgs::msg::PoseStamped ps;
-    ps.header = header;
-    ps.pose.position.x = w.x;
-    ps.pose.position.y = w.y;
-    // 비행 구간의 고도를 z에 담는다. 지상 컨트롤러는 z를 무시하고,
-    // mode_manager 는 ModeSwitchPlan 으로 이착륙을 판단한다.
-    ps.pose.position.z = w.z;
-    ps.pose.orientation.w = 1.0;
-    msg.poses.push_back(ps);
-  }
-  return msg;
+  return densifyPath(wps, costmap_->getResolution(), header);
 }
 
 

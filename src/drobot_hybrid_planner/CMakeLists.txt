@@ -81,6 +81,12 @@ if(BUILD_TESTING)
   target_link_libraries(test_state_space hybrid_astar_planner)
   ament_target_dependencies(test_state_space ${dependencies})
 
+  # 컨트롤러로 나가는 경로의 모양 (보간 간격, 진행 방향 yaw)
+  ament_add_gtest(test_path_msg test/test_path_msg.cpp)
+  target_include_directories(test_path_msg PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(test_path_msg hybrid_astar_planner)
+  ament_target_dependencies(test_path_msg ${dependencies})
+
   # 아래 두 테스트는 노드를 만든다. 떠 있는 시뮬레이션과 DDS 로 섞이지 않게
   # ROS_DOMAIN_ID 를 격리해 돌린다 (특히 첫 번째는 노드 이름이 planner_server 다).
   find_package(ament_cmake_ros REQUIRED)
