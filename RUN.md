@@ -380,7 +380,10 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 | B | 컨트롤러에 듬성한 꺾임점 + yaw 0 경로를 넘겨 로봇이 좌우로 흔들림 | track-b 에서 0.05 m 간격·진행 방향 yaw 로 수정 (회전만 76% -> 7%, B 측정) |
 | A | ElevationLayer 가 rolling window 를 지원하지 않아 local costmap 에 높이가 엉뚱하게 쌓임 | track-b 에서 local costmap 에서 제외 (회피). `updateOrigin` 구현이 근본 해결 |
 | B | derived 에서 출발→목표 19.4 m 를 한 번에 날았다 / 휴리스틱이 admissible 하지 않았다 | track-b 에서 비행 1구간 5 m 제약 + 휴리스틱 하한 수정 |
-| B | **경로가 상자·벽에 붙는다 — 상자(fly_over)에 대한 몸체 충돌 검사가 없다.** 로봇이 상자 모서리에 박혀 aborted (2026-10-02, 3회 중 2회) | **B 가 고친다** (HANDOFF 3절) |
+| B | 경로가 상자·벽에 붙어 로봇이 상자 모서리에 박혔다 (3회 중 2회) | **수정** (`fix/path-clearance`) — 3회 모두 충돌 없음, 상자까지 0.65 m 이상 |
+| C | 비행 착륙 직후 aborted (1회) | 원인 미확인 — 로그를 남기며 재현 필요 |
+| 공동 | `xy_goal_tolerance: 0.75` 라 목표 0.75 m 앞에서 succeeded | 플랫폼 원본 값. 지표로 쓰려면 조정 결정 |
+| A | 목표 표시 원판(goal_marker)이 지형으로 읽혀 목표 칸이 막힌다 → 목표가 0.3~0.4 m 옮겨짐 | 월드 쪽 수정 필요 |
 | B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
 | B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
 | B | 착륙점이 장애물 한가운데로 잡힌다 | 원인은 미관측 → free. 위 착륙 제한으로 대응, 재측정 필요 |
