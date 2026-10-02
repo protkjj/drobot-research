@@ -269,10 +269,13 @@ def main():
     ap.add_argument("--planner", default="proposed",
                     choices=["smac2d", "drone_only", "shortest_hybrid", "proposed"],
                     help="어느 플래너로 돌렸는지 — 요약 표의 비교 축")
+    ap.add_argument("--goal", type=float, nargs=2, metavar=("X", "Y"), default=None,
+                    help="목표를 직접 준다 (기본: 월드별 GOALS). 특정 상황 재현용")
     a = ap.parse_args()
 
     rclpy.init()
-    node = Recorder(a.world, GOALS[a.world], a.timeout)
+    goal = tuple(a.goal) if a.goal else GOALS[a.world]
+    node = Recorder(a.world, goal, a.timeout)
 
     # Nav2 가 뜨고 초기 위치가 잡힐 때까지 잠깐 받아둔다
     node.get_logger().info("토픽 수신 대기 (5초)")

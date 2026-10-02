@@ -89,7 +89,8 @@ inactive 여도 액션 이름은 보인다. 그 상태면 RViz 에서 목표를 
 ## 3. 실험 실행 (C 트랙)
 
 `DROBOT_ENERGY=derived ./sync.sh run base_map_h0.5` 가 아래 셋(시뮬 + mode_manager + record_run)을
-한 번에 한다. Nav2 가 active 가 될 때까지 기다리고, 끝나면 결과를 `benchmark/results/` 로 가져오고 끈다.
+한 번에 한다 (재현용: `DROBOT_RUN_GOAL="x y"` 로 목표, `DROBOT_RUN_TIMEOUT=300` 으로 기록 시간).
+Nav2 가 active 가 될 때까지 기다리고, 끝나면 결과를 `benchmark/results/` 로 가져오고 끈다.
 화면으로 보면서 하려면 아래처럼 터미널을 나눠 직접 띄운다.
 
 ### 터미널 2 — 모드 전환 관리자
@@ -384,7 +385,8 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 | C | 비행 착륙 직후 aborted (1회) | 원인 미확인 — 로그를 남기며 재현 필요 |
 | 공동 | `xy_goal_tolerance: 0.75` 라 목표 0.75 m 앞에서 succeeded | **0.30 으로 수정** (checker·DWB 둘 다) — 0.27~0.28 m 에서 도착 |
 | A | 목표 표시 원판(goal_marker)이 지형으로 읽혀 목표 칸이 막힌다 → 목표가 0.3~0.4 m 옮겨짐 | **원판 2 mm 로 수정** (생성기 + 월드 6개) |
-| B | medium_open 에서 계획이 2 s 제한을 회차당 ~20 번 넘겨 진행이 느리다 (180 s timeout) | 원인 확인 중 — 경로 여유 비용 영향 의심 |
+| B | medium_open 에서 계획이 2 s 제한을 회차당 13~22 번 넘기고 로봇이 한 곳을 맴돈다 (180 s timeout) | **경로 여유와 무관** (꺼도 같음). 원인 미조사 |
+| B | 경로 여유 비용이 계획 시간을 2~7 배 늘린다 (휴리스틱에 안 들어감) | 큰 맵에서 가중치·timeout 조정 검토 |
 | B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
 | B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
 | B | 착륙점이 장애물 한가운데로 잡힌다 | 원인은 미관측 → free. 위 착륙 제한으로 대응, 재측정 필요 |

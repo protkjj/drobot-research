@@ -269,6 +269,11 @@ do_run() {
   local planner="${3:-proposed}"
   local energy="${DROBOT_ENERGY:-default}"
   local json="sim_${world}_${energy}.json"
+  # 재현 실험용 (선택): 목표를 직접 주거나 기록 시간을 늘린다.
+  #   DROBOT_RUN_GOAL="1.68 10.33" DROBOT_RUN_TIMEOUT=300 ./sync.sh run base_map_h0.5
+  local extra=""
+  [ -n "${DROBOT_RUN_GOAL:-}" ] && extra="$extra --goal $DROBOT_RUN_GOAL"
+  [ -n "${DROBOT_RUN_TIMEOUT:-}" ] && extra="$extra --timeout $DROBOT_RUN_TIMEOUT"
 
   ensure_container || return 1
   stop_sim
@@ -309,7 +314,7 @@ do_run() {
   ssh -t "$REMOTE" "docker exec drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
       python3 src/drobot_experiments/drobot_experiments/record_run.py \
-        --world $world --out /app/$json
+        --world $world --out /app/$json $extra
       chown \$(stat -c %u:%g /app) /app/$json /app/mode_manager.log 2>/dev/null || true
     '"
 
