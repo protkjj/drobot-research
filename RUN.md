@@ -88,6 +88,10 @@ inactive 여도 액션 이름은 보인다. 그 상태면 RViz 에서 목표를 
 
 ## 3. 실험 실행 (C 트랙)
 
+`DROBOT_ENERGY=derived ./sync.sh run base_map_h0.5` 가 아래 셋(시뮬 + mode_manager + record_run)을
+한 번에 한다. Nav2 가 active 가 될 때까지 기다리고, 끝나면 결과를 `benchmark/results/` 로 가져오고 끈다.
+화면으로 보면서 하려면 아래처럼 터미널을 나눠 직접 띄운다.
+
 ### 터미널 2 — 모드 전환 관리자
 
 ```bash
@@ -159,9 +163,10 @@ mode_manager 가 한 것이다. 둘이 어긋나면 그 자체가 결과다.
   `ogre2` 가 3/3 정상이었다. 두 원인을 동시에 고쳐서 섞어 판단한 것이다.
   지금은 launch 가 `render_engine:=ogre2` 를 기본으로 월드 사본에 덮어쓴다 (track-b).
   `ogre`(v1) 는 RTX 4070 SUPER 에서 라이다가 모든 빔에 0.5 m 를 내 쓸 수 없었다.
-- **실행 사용자**: `docker exec -u $(id -u):$(id -g)` 로 `ros2 launch` 를 띄우면
-  같은 증상이 난다. root 로 띄우면 매번 성공한다 (3/3 vs 전부 실패).
-  `sync.sh` 의 `do_sim` 에서 `-u` 를 뺐다. **빌드는 `-u` 를 유지해야 한다**
+- **실행 사용자 — 이것도 지금은 재현되지 않는다 (2026-10-02 정정)**: 처음엔 `-u` 로 띄우면
+  멈추고 root 면 된다고 봤다. ogre2 기준으로 `-u` 도 3/3 정상이었다.
+  그래도 시뮬은 root 로 띄운다 — 붙는 도구(mode_manager·record_run·확인 명령)가 전부
+  root 라서 같은 사용자여야 하기 때문이다 (4-9). **빌드는 `-u` 를 유지한다**
   (산출물이 root 소유가 되면 호스트에서 못 지운다).
 
 재발하면 진단 스크립트를 쓴다.
@@ -352,6 +357,18 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 
 ---
 
+## 4-9. ROS 노드는 같은 사용자로 띄운다
+
+2026-10-02 에 겪었다. 시뮬(root) 에 record_run 을 `-u`(사용자)로 붙였더니 액션 서버는
+'발견' 했지만 토픽을 하나도 못 받았고, 보낸 목표는 bt_navigator 에 닿지도 않았다
+(bt_navigator 로그에 수신 기록 없음). 반대로 사용자로 띄운 시뮬에 root 쪽 `ros2 lifecycle get`
+은 빈 응답이었다. DDS(공유메모리) 가 다른 사용자끼리 통신하지 못한 것으로 본다.
+
+규칙: 시뮬·mode_manager·record_run·확인 명령은 전부 `docker exec drobot_ros2 ...`
+(= root) 로. `-u` 는 빌드에만 쓴다. 결과 파일은 끝나고 `chown` 한다 (`sync.sh run` 이 그렇게 한다).
+
+---
+
 ## 5. 지금 알려진 문제
 
 | 트랙 | 문제 | 상태 |
@@ -363,6 +380,7 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 | B | 컨트롤러에 듬성한 꺾임점 + yaw 0 경로를 넘겨 로봇이 좌우로 흔들림 | track-b 에서 0.05 m 간격·진행 방향 yaw 로 수정 (회전만 76% -> 7%, B 측정) |
 | A | ElevationLayer 가 rolling window 를 지원하지 않아 local costmap 에 높이가 엉뚱하게 쌓임 | track-b 에서 local costmap 에서 제외 (회피). `updateOrigin` 구현이 근본 해결 |
 | B | derived 에서 출발→목표 19.4 m 를 한 번에 날았다 / 휴리스틱이 admissible 하지 않았다 | track-b 에서 비행 1구간 5 m 제약 + 휴리스틱 하한 수정 |
+| B | **경로가 상자·벽에 붙는다 — 상자(fly_over)에 대한 몸체 충돌 검사가 없다.** 로봇이 상자 모서리에 박혀 aborted (2026-10-02, 3회 중 2회) | **B 가 고친다** (HANDOFF 3절) |
 | B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
 | B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
 | B | 착륙점이 장애물 한가운데로 잡힌다 | 원인은 미관측 → free. 위 착륙 제한으로 대응, 재측정 필요 |
@@ -371,6 +389,7 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 | A | 렌더 엔진 — RTX 5070 Ti 에서 ogre2 가 멈춘다던 판단 | 틀렸음. ogre2 3/3 정상 (2026-10-02). 기본값 ogre2 |
 | 공동 | `angular_dist_threshold: 0.1`(5.7°)이라 제자리 회전이 수렴하지 못하고 yaw 회전이 과다했다 | 0.785(45°)로 수정 (`fix/floor-offset`), 재측정 필요 |
 | 공동 | 규약은 TF 를 `base_link` 로 정했는데 실제는 `base_footprint` (바닥 수정 후 둘은 같은 자리) | 문서만 맞추면 됨 |
+| C | `sync.sh stop` 이 mode_manager·record_run 을 안 꺼서 관리자가 중복됐다 / `sync.sh run` 이 record_run 을 `-u` 로 띄워 통신 불가 / mode_manager 없이 돌아 비행이 실행되지 않았다 | 수정 (2026-10-02) |
 | C | INA226 실측 — 지금은 `reference_power.yaml` 추정값 | Phase 2 |
 
 상세와 근거는 `HANDOFF.md` 2절·3절.

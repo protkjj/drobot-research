@@ -132,11 +132,13 @@ stop_sim() {
   #   Detected jump back in time. Clearing TF buffer.
   # 전 노드에서 이게 반복되면 TF 조회가 계속 실패하고, lifecycle manager 가
   # bt_navigator / planner_server 를 inactive 로 떨어뜨려 목표가 거부된다.
+  # mode_manager·record_run 도 끈다 — 런치 밖에서 따로 띄우는 노드라 예전엔 남았고,
+  # 다음 실행에서 관리자가 둘이 되어 /mode_state 와 순간이동이 엇갈렸다 (2026-10-02).
   # Gazebo(server+gui) + RViz + GPU 렌더링에 colcon 병렬 컴파일이 겹치면
   # 머신이 응답하지 않게 된다 (실제로 SSH 가 끊긴 적이 있다).
   echo "==> 시뮬레이션 종료 (빌드와 동시 실행 금지)"
   ssh "$REMOTE" "docker exec drobot_ros2 bash -c \
-    \"pkill -9 -f 'gz sim|ruby.*gz|rviz2|bridge_node|ros_gz|slam_toolbox|ekf_node|ros2 launch|robot_state_pub|controller_server|planner_server|bt_navigator|behavior_server|velocity_smoother|lifecycle_manager|waypoint_follower|smoother_server|map_server|amcl|component_container' 2>/dev/null\" || true"
+    \"pkill -9 -f 'gz sim|ruby.*gz|rviz2|bridge_node|ros_gz|slam_toolbox|ekf_node|ros2 launch|robot_state_pub|controller_server|planner_server|bt_navigator|behavior_server|velocity_smoother|lifecycle_manager|waypoint_follower|smoother_server|map_server|amcl|component_container|mode_manager|record_run' 2>/dev/null\" || true"
   sleep 2
 }
 
@@ -272,14 +274,43 @@ do_run() {
   stop_sim
   do_sim "" "$world" "$planner" headless
 
-  echo "==> Nav2 기동 대기 (25초)"
-  sleep 25
+  # bt_navigator 가 실제로 active 가 될 때까지 기다린다 (최대 120초).
+  # 예전엔 25초 고정이었는데, 기동이 늦거나 실패하면 inactive 인 채로 목표를 보내
+  # 'Action server is inactive. Rejecting the goal.' 로 조용히 거부됐다.
+  echo "==> Nav2 기동 대기 (bt_navigator active 까지, 최대 120초)"
+  if ! ssh "$REMOTE" "docker exec drobot_ros2 bash -lc '
+      source /opt/ros/jazzy/setup.bash
+      for i in \$(seq 1 24); do
+        ros2 lifecycle get /bt_navigator 2>/dev/null | grep -q ^active && exit 0
+        sleep 5
+      done
+      exit 1
+    '"; then
+    echo "!! bt_navigator 가 active 가 아니다 — Nav2 기동 실패. sim.log 를 볼 것" >&2
+    stop_sim
+    return 1
+  fi
 
+  # 이착륙을 실제로 수행하려면 mode_manager 가 있어야 한다.
+  # 없으면 플래너가 비행을 계획해도 로봇은 이륙점에서 멈춘다.
+  echo "==> mode_manager 기동"
+  ssh "$REMOTE" "docker exec -d drobot_ros2 bash -lc '
+      source /opt/ros/jazzy/setup.bash && source /app/install/setup.bash
+      ros2 run drobot_mode_manager mode_manager --ros-args \
+        --params-file /app/src/drobot_mode_manager/config/mode_switch_params.yaml \
+        -p use_sim_time:=true -p world:=$world > /app/mode_manager.log 2>&1
+    '"
+
+  # record_run 도 시뮬과 같은 root 로 띄운다 (RUN 4-9).
+  # 예전엔 -u 로 띄웠는데 ROS(DDS)가 다른 사용자끼리 통신하지 못해서
+  # 토픽을 하나도 못 받고 목표도 bt_navigator 에 닿지 않았다 (2026-10-02).
+  # 결과 파일만 호스트 사용자에게 돌려준다.
   echo "==> 목표 전송 + 궤적 기록: $world"
-  ssh -t "$REMOTE" "docker exec -u \$(id -u):\$(id -g) drobot_ros2 bash -lc '
+  ssh -t "$REMOTE" "docker exec drobot_ros2 bash -lc '
       cd /app && source /opt/ros/jazzy/setup.bash && source install/setup.bash
       python3 src/drobot_experiments/drobot_experiments/record_run.py \
         --world $world --out /app/$json
+      chown \$(stat -c %u:%g /app) /app/$json /app/mode_manager.log 2>/dev/null || true
     '"
 
   echo "==> 결과 회수"

@@ -28,5 +28,6 @@ frames_*.gv
 
 # 시뮬 실행 산출물 (저장소에 넣지 않는다)
 sim.log
+mode_manager.log
 tmp.json
 /sim_*.json
