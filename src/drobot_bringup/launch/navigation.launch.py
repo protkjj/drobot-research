@@ -9,6 +9,8 @@ Gazebo + SLAM + Nav2 한번에 실행
   ros2 launch drobot_bringup navigation.launch.py world:=f1_circuit
 """
 import os
+import re
+import tempfile
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, ExecuteProcess, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -18,6 +20,25 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 from ros_gz_bridge.actions import RosGzBridge
+
+
+def with_render_engine(world_file, engine):
+    """월드 SDF 의 Sensors render_engine 을 engine 으로 바꾼 사본 경로를 돌려준다.
+
+    월드 파일(12개)은 그대로 두고, 바꿀 게 있을 때만 임시 사본을 만든다.
+    월드는 상대 경로 참조가 없어 사본 위치가 달라도 깨지지 않는다.
+    """
+    with open(world_file) as f:
+        sdf = f.read()
+    new = re.sub(r'<render_engine>[^<]*</render_engine>',
+                 f'<render_engine>{engine}</render_engine>', sdf)
+    if new == sdf:
+        return world_file
+    name = os.path.splitext(os.path.basename(world_file))[0]
+    fd, path = tempfile.mkstemp(prefix=f'drobot_{name}_{engine}_', suffix='.sdf')
+    with os.fdopen(fd, 'w') as f:
+        f.write(new)
+    return path
 
 
 def launch_setup(context):
@@ -121,6 +142,21 @@ def launch_setup(context):
             *[p for p in source_original_candidates if os.path.basename(p) in ('empty.sdf', 'empty.world')],
         ]
         world_file = next((p for p in fallback_candidates if os.path.exists(p)), fallback_candidates[0])
+
+    # 센서 렌더 엔진. 월드 파일에는 ogre(v1) 가 박혀 있다 (RTX 5070 Ti 에서
+    # ogre2 가 멈춰서 바꾼 것). 그런데 ogre v1 에서는 gpu_lidar 가 모든 빔에
+    # range_min(0.5 m) 을 낸다 — LiDAR 를 1 m 올려도 같고, ogre2 로 바꾸면
+    # 0.9~4.4 m 실제 거리가 나온다 (2026-10-02 실측, RTX 4070 SUPER).
+    # LiDAR 가 죽으면 SLAM·obstacle_layer·elevation_layer 가 로봇 둘레 0.5 m
+    # 에 가짜 벽을 그린다. 그래서 기본을 ogre2 로 두고, ogre2 가 멈추는
+    # 머신에서만 render_engine:=ogre 로 내린다.
+    render_engine = context.launch_configurations.get('render_engine', 'ogre2')
+    if os.path.exists(world_file):
+        world_file = with_render_engine(world_file, render_engine)
+    print(f"[INFO] render_engine={render_engine} -> {world_file}")
+    if render_engine == 'ogre':
+        print("[WARNING] render_engine=ogre: gpu_lidar 가 모든 빔에 range_min 을 낸다. "
+              "/scan 은 발행되지만 값이 쓸모없다 — SLAM·장애물 감지가 동작하지 않는다.")
 
     # Config files (all from bringup)
     # planner 인자로 baseline과 제안 방법을 바꿔가며 실험할 수 있다.
@@ -469,6 +505,16 @@ def generate_launch_description():
                 '렌더 엔진을 EGL 로 열게 한다. 참고: Gazebo 멈춤의 실제 원인은 '
                 '이 플래그가 아니라 ogre2 였고, 월드에서 ogre(v1) 로 바꿔 해결했다. '
                 'false 로 두면 예전 동작.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'render_engine',
+            default_value='ogre2',
+            choices=['ogre2', 'ogre'],
+            description=(
+                'Gazebo 센서 렌더 엔진 (월드 파일 값을 덮어쓴다). ogre2 가 기본 — '
+                'ogre(v1) 에서는 gpu_lidar 가 모든 빔에 range_min 을 내 LiDAR 가 '
+                '사실상 죽는다. ogre2 가 멈추는 머신(RTX 5070 Ti + gz-sim 8.11)에서만 ogre.'
             ),
         ),
         OpaqueFunction(function=launch_setup),
