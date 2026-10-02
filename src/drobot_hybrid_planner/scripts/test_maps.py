@@ -267,9 +267,15 @@ def _marker_model_xml(
     pos: tuple[float, float],
     rgba: tuple[float, float, float, float],
     radius: float = 0.25,
-    height: float = 0.04,
+    height: float = 0.002,
 ) -> str:
-    """Visual-only 마커 (collision 없음). 로봇이 통과해도 충돌 없음."""
+    """
+    Visual-only 마커 (collision 없음). 로봇이 통과해도 충돌 없음.
+
+    높이는 2 mm 다. 깊이 카메라는 시각 형상을 그대로 보므로, 예전 4 cm 원판은
+    가장자리 단차 때문에 목표 칸 둘레가 지형으로 읽혀 목표가 막혔다 (2026-10-02).
+    2 mm 면 단차 판정(max_step_height 0.05 의 30 % = 0.015 m)보다 작아 평지로 읽힌다.
+    """
     x, y = pos
     z = height / 2
     r, g, b, a = rgba

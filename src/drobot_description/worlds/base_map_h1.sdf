@@ -126,10 +126,10 @@
 
     <model name="start_marker">
       <static>true</static>
-      <pose>2.0 1.0 0.02 0 0 0</pose>
+      <pose>2.0 1.0 0.001 0 0 0</pose>
       <link name="link">
         <visual name="visual">
-          <geometry><cylinder><radius>0.25</radius><length>0.04</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.25</radius><length>0.002</length></cylinder></geometry>
           <material>
             <ambient>0.0 1.0 0.0 1.0</ambient>
             <diffuse>0.0 1.0 0.0 1.0</diffuse>
@@ -141,10 +141,10 @@
     </model>
     <model name="goal_marker">
       <static>true</static>
-      <pose>2.0 10.0 0.02 0 0 0</pose>
+      <pose>2.0 10.0 0.001 0 0 0</pose>
       <link name="link">
         <visual name="visual">
-          <geometry><cylinder><radius>0.25</radius><length>0.04</length></cylinder></geometry>
+          <geometry><cylinder><radius>0.25</radius><length>0.002</length></cylinder></geometry>
           <material>
             <ambient>1.0 0.85 0.0 1.0</ambient>
             <diffuse>1.0 0.85 0.0 1.0</diffuse>
