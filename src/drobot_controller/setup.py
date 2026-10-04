@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'teleop_keyboard = drobot_controller.teleop_keyboard:main',
             'transform_manager = drobot_controller.transform_manager:main',
+            'mode_switch_executor = drobot_controller.mode_switch_executor:main',
         ],
     },
 )
