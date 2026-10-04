@@ -641,10 +641,22 @@ void ElevationLayer::updateCosts(
       const unsigned char old_cost = master_grid.getCost(mx, my);
       if (old_cost == NO_INFORMATION || c >= old_cost) {
         master_grid.setCost(mx, my, c);
-      } else if (cells_[ci].has_cloud) {
+      } else if (cells_[ci].has_cloud && c >= cost_flyover_) {
         // 카메라가 "이 칸은 낮다"고 측정한 경우에만 다른 레이어 판정을 완화한다.
-        // 2.5D 의 핵심 기능(넘을 수 있는 장애물을 200 으로 내려 비행 경로를
-        // 열어주는 것)은 이 경로로 그대로 동작한다.
+        // 2.5D 의 핵심 기능(넘을 수 있는 장애물을 254 → 200 으로 내려 비행
+        // 경로를 열어주는 것)은 이 경로로 그대로 동작한다.
+        //
+        // 단 flyover(200) 아래로는 절대 내리지 않는다. 2026-10-05
+        // 예전에는 가드가 없어서, 카메라가 벽 앞바닥이나 벽 밑동을 보고 그 칸을
+        // 낮게(<=0.15 m) 측정하면 classify 가 free(0) 를 돌려주고, 그 값이
+        // obstacle_layer 의 LETHAL(254) 을 덮어써 '벽에 구멍' 이 뚫렸다.
+        // 플래너는 그 구멍으로 경로를 그었고(실측: 경로가 cost 254 칸을 통과),
+        // 로봇은 그 경로를 따라가다 실제 벽에 부딪혔다. 로봇이 움직이면 시야가
+        // 바뀌어 구멍이 메워지므로 스냅샷으로는 잘 안 잡히는 간헐적 현상이다.
+        //
+        // 원칙: 다른 센서가 '뭔가 있다' 고 한 칸에 대해 카메라가 증명할 수 있는
+        // 것은 '낮다' 까지이지 '아무것도 없다' 가 아니다. 높이를 낮게 쟀다는
+        // 이유로 장애물을 지우면 안 된다.
         master_grid.setCost(mx, my, c);
       }
       // 그 외(LiDAR 만 본 칸)는 기존 판정을 유지한다 — 통행 가능성을 발명하지 않는다.

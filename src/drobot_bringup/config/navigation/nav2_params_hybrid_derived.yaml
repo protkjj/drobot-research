@@ -67,11 +67,31 @@ controller_server:
     FollowPath:
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "dwb_core::DWBLocalPlanner"
-      # 경로 방향과 이 각도 이상 차이나면 전진을 멈추고 제자리 회전 (rad). 0.785 = 45°, Nav2 기본값.
-      # 예전 값 0.1(5.7°)은 주석(45°)과 달랐고, 회전이 수렴하지 못했다:
-      #   멈추는 데 필요한 각 = 1.5^2 / (2*5.0) = 0.225 rad(12.9°) > 허용 0.1 rad
-      #   -> 매번 반대쪽으로 넘어가 다시 회전 (2026-10-02 시뮬에서 yaw 회전 과다)
-      angular_dist_threshold: 0.785
+      # 경로 방향과 이 각도 이상 차이나면 전진을 멈추고 제자리 회전 (rad).
+      # 이력: 0.1(5.7°) → 회전이 수렴 못 함 (멈추는 데 필요한 각 1.5^2/(2*5.0)
+      #       = 0.225 rad > 허용 0.1 rad 이라 매번 넘어가 재회전, 2026-10-02)
+      #       → 0.785(45°, Nav2 기본값)
+      #       → 1.75(100°). 2026-10-05
+      #
+      # 0.785 였을 때 코너에서 막혔다. 이유:
+      #   - 플래너가 0.5 s 마다 재계획하므로 경로 시작점이 항상 로봇이다.
+      #     즉 shim 이 주행 내내, 코너에서도 계속 개입한다.
+      #   - 코너는 약 90° 꺾이므로 45° 임계를 가볍게 넘어 그 자리에서
+      #     제자리 회전을 시도한다.
+      #   - 제자리 회전은 footprint 외접 반경 0.3015 m 를 쓸어낸다. 실측한
+      #     복도 병목 여유는 0.350 m 라 남는 margin 이 4.9 cm 뿐이다.
+      #   - RotationShimController 는 회전이 충돌하면 primary 로 넘기지 않고
+      #     예외를 던진다 → FollowPath 실패 → 복구 루프.
+      #
+      # 같은 자리를 '직진으로 통과'하는 데 필요한 건 내접 반경 0.195 m 뿐이고,
+      # margin 이 15.5 cm 로 3 배 넉넉하다. 그러니 코너는 제자리 회전이 아니라
+      # 호(arc)로 돌아야 한다. DWB 는 호를 만들 수 있고 충돌하는 궤적은
+      # critic 점수에서 탈락시켜 다른 걸 고르므로 실패를 던지지 않는다.
+      #
+      # 1.75 rad = 100° — "경로가 사실상 내 뒤쪽일 때만 제자리 회전" 이라는
+      # 정책. 출발 시 반대 방향을 보고 있는 경우(넓은 곳)는 그대로 처리되고,
+      # 코너(약 90°)는 DWB 가 호로 돈다.
+      angular_dist_threshold: 1.75
       forward_sampling_distance: 1.0  # 경로 앞 1.0m 지점 방향 기준 (재계획 시 heading 흔들림 감소)
       rotate_to_heading_angular_vel: 1.5  # 제자리 회전 속도 (rad/s)
       max_angular_accel: 5.0          # 회전 가속 제한
@@ -94,11 +114,60 @@ controller_server:
       vx_samples: 20
       vy_samples: 1
       vtheta_samples: 40            # 회전 샘플 증가 (더 세밀한 회전 탐색)
-      sim_time: 2.5                 # 1.7→2.5 (더 멀리 보고 미리 회전 시작)
+      # sim_time: 2.5 → 1.5. 2026-10-05
+      # DWB 는 sim_time 동안 (vx, vtheta) 를 고정한 '원호 하나' 만 그린다.
+      # 2.5 s × max_vel_x 0.4 = 1.0 m 짜리 원호인데, 코너에서 1 m 단일 원호는
+      # 안쪽을 자르거나 바깥으로 부풀어 거의 전부 벽에 걸린다. ObstacleFootprint
+      # 가 그걸 무효로 만들어 살아남는 궤적이 극소수가 되고, 로봇이 코너 앞에서
+      # 한참 머뭇거리다 겨우 지나갔다 (2026-10-05 실측).
+      # 1.5 s × 0.4 = 0.6 m 로 줄이면 코너에 들어맞는 원호가 많아진다.
+      # 매 주기 재계획하므로 멀리 보지 못해 손해 보는 건 적다.
+      # 2.5 로 올렸던 목적("미리 회전 시작")은 이제 angular_dist_threshold 가 맡는다.
+      sim_time: 1.5
       transform_tolerance: 1.0        # 시뮬레이션용 TF 허용 오차
       xy_goal_tolerance: 0.50
       # Critics - 장애물 회피 강화!
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "PathAlign", "PathDist", "GoalDist"]
+      # ObstacleFootprint 추가. 2026-10-05
+      # BaseObstacle 은 로봇 '중심점' 한 칸의 cost 만 본다. 몸통은 보지 않는다.
+      # 보통은 인플레이션의 inscribed(253) 띠가 그 역할을 대신하지만, inscribed
+      # 반경은 방향을 모르는 '내접원'이라 긴 로봇에서 구멍이 생긴다:
+      #     내접 반경      0.195 m  (footprint 반폭)
+      #     로봇 반길이    0.230 m  (중심 → 코)
+      # 즉 벽을 정면으로 본 자세에서 중심이 0.20 m 떨어져 있으면 253 밖이라
+      # '합법'인데, 코는 이미 벽 안으로 3.5 cm 들어가 있다. DWB 가 그 궤적을
+      # 유효로 보고 명령을 내 로봇이 벽을 밀고, 바퀴가 타고 올라가 뒤집혔다.
+      # ObstacleFootprint 는 자세(회전)까지 반영한 실제 footprint 다각형을
+      # costmap 에 대고 검사해 충돌 궤적을 무효로 만든다.
+      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "ObstacleFootprint", "PathAlign", "PathDist", "GoalDist"]
+      # ObstacleFootprint.scale: 1.0 → 0.2. 2026-10-05
+      # 이 critic 은 충돌을 무효 처리하기도 하지만, 충돌이 아닌 칸의 인플레이션
+      # 비용도 비례해 더한다. 1.0 은 근거 없이 넣은 값이었고 Nav2 기본(0.02)의
+      # 50 배였다. 실측(/evaluation, 코너 앞 정지 상태):
+      #     느린 궤적(선택됨) : GoalDist 39×0.25        = 9.75
+      #     빠른 전진 궤적    : ObstacleFootprint 220×0.05 = 11.00  (GoalDist 0)
+      # 즉 목표에 도달하는 궤적이 '벽에 가깝다'는 통행료 11 을 물어 정지(9.75)에
+      # 졌다. 좁은 복도에서는 어떤 경로든 인플레이션을 지나므로, 통행료가 진행
+      # 이득보다 비싸면 로봇은 서 있는 쪽을 고른다 — 코너 앞 대기의 원인.
+      #
+      # 주의: MapGrid 계열 critic 의 실제 scale 은 YAML 값이 아니다.
+      #   PathAlign/PathDist/GoalDist : resolution × 0.5 × scale = 0.05×0.5×10 = 0.25
+      #   ObstacleFootprint           : resolution × scale       = 0.05×1.0    = 0.05
+      # 상한 계산: 비-치명 최대 cost 252 × 0.05 × scale < 진행 이득(~9.75)
+      #            → scale ≤ 0.3. 0.2 면 최대 통행료 2.5 로 선호는 남고 진행을
+      #            막지는 않는다.
+      # 0.2 로도 부족했다. 실측(/evaluation, 코너 앞):
+      #     선택됨  vx=0.063 : GoalDist 10.25                      = 10.25
+      #     빠른전진 vx=0.316 : Obst 2.53 + PathDist 0.25 + Goal 8.75 = 11.53
+      # 전진으로 버는 GoalDist 이득이 1.50 뿐인데 통행료가 2.53 이라 여전히
+      # 정지가 이겼다. 통행료 raw 는 253 — footprint 가 inscribed 띠를 덮는다는
+      # 뜻이고, 복도 여유 0.35 m / 로봇 반폭 0.195 m 에서는 어떤 자세로도
+      # 덮을 수밖에 없다. 즉 피할 수 없는 고정비다.
+      #
+      # 이 critic 을 '부드러운 선호' 로 쓰면 안 된다. 벽에서 떨어지는 것이
+      # 불가능한 복도에서 "떨어져라" 에 값을 매기면 정지가 늘 최적이 된다.
+      # 이 critic 의 역할은 충돌 무효 처리(하드)이고 그건 scale 과 무관하다.
+      # Nav2 기본값 0.02 로 둔다 → 통행료 253×0.05×0.02 = 0.25.
+      ObstacleFootprint.scale: 0.02
       Oscillation.scale: 1.0           # 진동 방지
       BaseObstacle.scale: 0.5         # 장애물 회피
       PathAlign.scale: 10.0
@@ -123,9 +192,16 @@ local_costmap:
       width: 4
       height: 4
       resolution: 0.05
-      # 직사각형 footprint (robot_radius 대신)
-      # 로봇 실제: 0.30 x 0.40m → 안전마진 포함 0.40 x 0.40m
-      footprint: "[[0.20, 0.20], [0.20, -0.20], [-0.20, -0.20], [-0.20, 0.20]]"
+      # footprint — 메시에서 직접 측정한 실제 외곽. 2026-10-05
+      # drobot.urdf.xacro 의 조인트 체인을 적용해 base_link + 암 4 + 사이드프레임 2
+      # + 바퀴 4 의 collision 메시를 전부 base_link 기준으로 변환한 결과:
+      #     길이(x) -0.228~+0.229 = 0.457 m,  폭(y) -0.193~+0.187 = 0.379 m
+      #     원점 기준 최대 XY 반경 0.297 m (제자리 회전 시 쓸어내는 반경)
+      # 이전 주석의 "로봇 실제 0.30 x 0.40m" 은 틀린 값이었다. 바퀴가 앞뒤로
+      # ±0.229 까지 뻗어 실제로는 그보다 길다.
+      # 여기에 패딩을 더하지 않는다 — 외접 반경이 커져 좁은 곳에서 회전이
+      # 불가능해진다. 안전마진은 inflation_layer 가 담당한다.
+      footprint: "[[0.23, 0.195], [0.23, -0.195], [-0.23, -0.195], [-0.23, 0.195]]"
       # elevation_layer 를 다시 넣었다. 2026-10-04
       # 뺐던 이유(2026-10-02): ElevationLayer 가 rolling window 를 지원하지 않아,
       # 로봇을 따라 움직이는 이 창에서 원점이 처음 위치에 고정된 채 같은 칸 번호를
@@ -212,8 +288,27 @@ global_costmap:
       global_frame: map
       robot_base_frame: base_footprint
       use_sim_time: true
-      # 직사각형 footprint - 안전마진 포함 0.45 x 0.45m
-      footprint: "[[0.225, 0.225], [0.225, -0.225], [-0.225, -0.225], [-0.225, 0.225]]"
+      # footprint — 메시에서 직접 측정한 실제 외곽. 2026-10-05
+      # drobot.urdf.xacro 의 조인트 체인을 적용해 base_link + 암 4 + 사이드프레임 2
+      # + 바퀴 4 의 collision 메시를 전부 base_link 기준으로 변환한 결과:
+      #     길이(x) -0.228~+0.229 = 0.457 m,  폭(y) -0.193~+0.187 = 0.379 m
+      #     원점 기준 최대 XY 반경 0.297 m (제자리 회전 시 쓸어내는 반경)
+      # 이전 주석의 "로봇 실제 0.30 x 0.40m" 은 틀린 값이었다. 바퀴가 앞뒤로
+      # ±0.229 까지 뻗어 실제로는 그보다 길다.
+      # 여기에 패딩을 더하지 않는다 — 외접 반경이 커져 좁은 곳에서 회전이
+      # 불가능해진다. 안전마진은 inflation_layer 가 담당한다.
+      # ↑ 글로벌(계획)에는 여기에 0.10 m 패딩을 더한 값을 쓴다. 2026-10-05
+      # collides() 가 막는 INSCRIBED(253) 띠의 폭은 inflation_radius 가 아니라
+      # footprint 의 내접 반경에서 나온다 (Nav2 가 footprint 로 계산한다).
+      # 실측: 플래너가 낸 경로의 최소 벽 여유가 0.206 m 였다. 내접이 0.195 m 이니
+      # 제어 오차에 쓸 margin 이 1.1 cm 뿐이고, 그래서 컨트롤러는 253 을 스치는
+      # 궤적밖에 못 고른다 — 통행료를 높이면 멈추고 낮추면 벽을 긁는다.
+      # 계획용 footprint 를 키우면 253 띠가 넓어져 플래너가 알아서 떨어져 돈다.
+      #   계획 내접 0.295 m → margin 0.10 m
+      # 통과해야 할 틈은 1.90 m (박스 x<=4.00 ~ 오른쪽벽 x>=5.90) 이므로
+      # 양쪽에 0.295 를 빼도 중앙에 1.31 m 가 남는다.
+      # 제어(로컬)는 실측값 그대로 둔다 — 충돌 판정은 실제 크기로 해야 한다.
+      footprint: "[[0.33, 0.295], [0.33, -0.295], [-0.33, -0.295], [-0.33, 0.295]]"
       resolution: 0.05
       # static + obstacle + elevation + inflation
       # elevation_layer 는 obstacle_layer 뒤에 와야 한다 —
