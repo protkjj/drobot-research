@@ -259,7 +259,25 @@ local_costmap:
         cost_values:
           free: 0
           rover_traversable: 100
-          fly_over: 200
+          # 로컬(제어)에서만 flyover 를 LETHAL 로 올린다. 2026-10-05
+          #
+          # 글로벌(계획)은 200 그대로다 — 플래너는 200 을 "지상 불가, 비행 가능"
+          # 으로 읽고 비행 구간을 열 수 있어야 한다. 2.5D 의 핵심 기능이다.
+          # 그러나 DWB 는 그 구분을 모른다. 금지선은 INSCRIBED(253) 하나뿐이라
+          # 200 은 '조금 비싼 바닥'일 뿐이고, 궤적을 짧게 질러가며 밟는다.
+          #
+          # 실측 (2026-10-05, /global_costmap/costmap + elevation_grid 덤프):
+          #   로봇이 올라타 전복된 칸 (3.775, 4.025) 의 측정 높이 0.564 m.
+          #   ElevationLayer 는 이를 flyover(200) 로 정확히 분류했고 플래너도
+          #   피해 갔다 — 경로 157 점 중 flyover 0 개, 벽(254) 0 개.
+          #   밟은 것은 플래너가 아니라 컨트롤러다. ObstacleFootprint.scale 을
+          #   0.02 로 낮춰 둔 탓에 200 의 통행료마저 거의 0 이라 효과가 컸다.
+          #
+          # 추력 물리가 아직 없어 실제로 뜰 수 없는 동안은, 로컬에서
+          # '넘어갈 수 있음'과 '막혔음'을 구분할 실익이 없다 — 바퀴로는 둘 다
+          # 못 간다. 비행이 동작하면 되돌리고, 모드에 따라 로컬 코스트맵을
+          # 바꾸는 쪽으로 가야 한다.
+          fly_over: 254
           impassable: 254
         use_pointcloud: true
         use_laserscan: true
@@ -370,7 +388,31 @@ global_costmap:
         cost_values:
           free: 0
           rover_traversable: 100
-          fly_over: 200
+          # ⚠️ 원래 설계값은 200 이다. 비행이 실제로 동작하면 200 으로 되돌린다.
+          #
+          # 200 과 254 는 플래너에서 전혀 다르게 처리된다 (state_space.cpp):
+          #   254 → collides() = true   — 지상도 공중도 탐색에서 제외
+          #   200 → collides() = false, roverTraversable() = false
+          #         즉 "바퀴로는 못 가지만 AIR 모드로는 갈 수 있다"
+          # A* 는 200 칸에서 GROUND→AIR 전환을 고르고, buildSwitchPlan() 이
+          # 이륙/착륙 전환점과 total_flight_energy 를 만든다. 200 이 없으면
+          # 비행 경로라는 선택지 자체가 생기지 않는다 — 2.5D 의 존재 이유다.
+          #
+          # 그런데 지금은 추력 물리가 없어 AIR 모드를 실행할 수 없다.
+          # 글로벌만 200 으로 두면 플래너는 "날아서 넘는다"는 전제로 장애물에
+          # 바싹 붙은 경로를 내는데, 로컬은 254 라 그 자리가 INSCRIBED(253) 이
+          # 되어 컨트롤러가 따라갈 수 없다. 교착이다.
+          #
+          # 실측 (2026-10-05, dumps/local2.txt + plan3.txt):
+          #   로컬 통과 가능 폭은 x 4.20~5.45 = 1.25 m 로 넉넉했다
+          #   (로봇 폭 0.379 m). 그런데 플래너 경로는 x 4.00~4.08 로
+          #   벽 끝에 붙었고, 그 구간 경로점 #7~#18 열두 개가 전부
+          #   로컬에서 occ 99 (INSCRIBED) 였다. 좁아서가 아니라
+          #   글로벌과 로컬이 서로 다른 지도를 봐서 생긴 교착이다.
+          #
+          # 추력이 생기면 이 값만 200 으로 되돌려 "우회 vs 비행" 에너지 비교를
+          # 재개한다. 그때까지는 지상 전용 우회가 정직한 baseline 이다.
+          fly_over: 254
           impassable: 254
         use_pointcloud: true
         use_laserscan: true
