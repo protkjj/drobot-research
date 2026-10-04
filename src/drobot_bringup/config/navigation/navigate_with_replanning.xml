@@ -33,13 +33,33 @@
         </RecoveryNode>
       </PipelineSequence>
 
-      <!-- 최후 복구: costmap 클리어 → 후진 → 작은 회전 (45°) -->
-      <Sequence name="RecoveryActions">
-        <ClearEntireCostmap name="ClearLocalCostmap" service_name="local_costmap/clear_entirely_local_costmap"/>
-        <ClearEntireCostmap name="ClearGlobalCostmap" service_name="global_costmap/clear_entirely_global_costmap"/>
-        <BackUp backup_dist="0.5" backup_speed="0.15" name="BackUp"/>
+      <!-- 최후 복구: 로컬 클리어 → 후진 → 작은 회전 (45°)
+           글로벌 costmap 은 일부러 지우지 않는다. 2026-10-04
+           사전 맵이 없고 track_unknown_space:false 라 미탐색 영역은 자유 공간이다.
+           로봇은 주행하면서 벽을 하나씩 '배워' 글로벌에 쌓는데, 여기서 글로벌을
+           지우면 그 학습이 통째로 사라진다. 그러면 플래너가 다시 빈 벌판에
+           직선을 긋고, 로봇은 같은 벽에 코를 박고, 또 실패하고, 또 지운다 —
+           영원히 같은 실수를 반복한다 (실측: 플래너는 매번 성공하는데 로봇은
+           벽 앞 0.25m 에서 멈춤).
+           실제로 로봇을 빼내는 건 BackUp/Spin 이다. 기억은 남겨둔다.
+           로컬은 매 주기 재생성되므로 지워도 안전하다. -->
+      <!-- Sequence 가 아니라 RoundRobin 이다. 2026-10-04
+           Sequence 였을 때는 BackUp 이 실패하면 그 뒤의 Spin 이 아예 실행되지
+           않았다. 실측 로그:
+             "Collision Ahead - Exiting DriveOnHeading" → "backup failed"
+             → 곧바로 "Goal failed"  (Spin 로그 없음)
+           전진이 막힌 상태에서 후진까지 거부당하면 로봇을 빼낼 수단이 사라져
+           그 자리에 영구히 선다.
+           RoundRobin 은 한 동작이 실패하면 다음 재시도에서 '다른' 동작을
+           고르므로, 후진이 막혀도 회전/대기로 빠져나갈 기회가 남는다. -->
+      <RoundRobin name="RecoveryActions">
         <Spin spin_dist="0.785" name="Spin45"/>
-      </Sequence>
+        <BackUp backup_dist="0.5" backup_speed="0.15" name="BackUp"/>
+        <Sequence name="ClearAndSettle">
+          <ClearEntireCostmap name="ClearLocalCostmap" service_name="local_costmap/clear_entirely_local_costmap"/>
+          <Wait wait_duration="2.0" name="WaitForSensors"/>
+        </Sequence>
+      </RoundRobin>
     </RecoveryNode>
   </BehaviorTree>
 </root>

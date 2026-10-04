@@ -64,6 +64,16 @@ struct ElevationCell
   uint32_t count = 0;
   bool observed = false;
 
+  /// 카메라(점군)가 이 칸의 높이를 실제로 '측정'했는가.
+  /// 아래 통계(min_z/max_z/...)는 카메라 관측만으로 채워진다.
+  bool has_cloud = false;
+
+  /// 2D LiDAR 가 이 칸에서 반사를 받았는가 (높이는 모름).
+  /// LiDAR 는 수평 평면 한 장만 훑으므로 "스캔 높이에 뭔가 있다"는 사실만 준다.
+  /// 32cm 말뚝인지 3m 벽인지 구분할 수 없다 — 그래서 높이 통계에는 넣지 않고
+  /// 이 플래그로만 남긴다.
+  bool hit_by_scan = false;
+
   void add(float z)
   {
     if (!observed) {
@@ -116,6 +126,12 @@ public:
 
   void matchSize() override;
 
+  /// rolling window 지원: 창의 원점이 로봇을 따라 이동하면, 자체 높이 격자
+  /// cells_ 를 베이스가 costmap_ 를 옮기는 것과 똑같은 규칙으로 재매핑한다.
+  /// 이게 없으면 로컬(rolling) costmap 에서 로봇이 전진할 때 높이가 이전
+  /// 좌표에 남아, 빈 바닥이 장애물(보라색 덩어리)로 번진다.
+  void updateOrigin(double new_origin_x, double new_origin_y) override;
+
 private:
   // ---- 콜백 ----------------------------------------------------------
   void pointCloudCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
@@ -163,6 +179,13 @@ private:
   double rover_traversable_max_ = 0.15;
   double fly_over_max_ = 2.0;
   double ceiling_height_ = 2.5;
+
+  /// LiDAR 도 함께 맞은 칸을 flyover(넘어갈 수 있음)로 내릴 때 요구하는 상한.
+  /// 전방 카메라는 가까운 큰 물체의 윗부분이 수직 FOV 를 벗어나 실제보다 낮게
+  /// 측정된다. LiDAR 가 "여기 단단한 게 있다"고 말하는데 카메라 측정치가
+  /// 이 값보다 높으면 과소추정일 수 있으므로 flyover 로 내리지 않는다.
+  /// (진짜 넘을 수 있는 낮은 장애물은 이 값 아래라 영향이 없다.)
+  double confident_flyover_max_ = 0.6;
 
   // traversability
   double max_slope_deg_ = 15.0;

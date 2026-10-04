@@ -126,14 +126,18 @@ local_costmap:
       # 직사각형 footprint (robot_radius 대신)
       # 로봇 실제: 0.30 x 0.40m → 안전마진 포함 0.40 x 0.40m
       footprint: "[[0.20, 0.20], [0.20, -0.20], [-0.20, -0.20], [-0.20, 0.20]]"
-      # elevation_layer 는 뺐다 (아래 파라미터 블록은 다시 넣을 때를 위해 남긴다).
-      # ElevationLayer 가 rolling window 를 지원하지 않아, 로봇을 따라 움직이는
-      # 이 창에서는 원점이 처음 위치에 고정된 채 같은 칸 번호로 써서 높이가
-      # 엉뚱한 칸에 찍히고 쌓였다. RViz 에서 빈 바닥이 보라색 덩어리로 뒤덮였고,
-      # 컨트롤러가 그걸 피하느라 명령의 64% 가 제자리 회전, 205 s 에 3 m 를 갔다.
-      # 장애물은 voxel_layer(LiDAR)가 보고, 지형 등급은 플래너가 global 에서 읽는다.
-      # ElevationLayer 에 updateOrigin 이 들어가면 다시 넣을 것. 2026-10-02
-      plugins: ["voxel_layer", "inflation_layer"]
+      # elevation_layer 를 다시 넣었다. 2026-10-04
+      # 뺐던 이유(2026-10-02): ElevationLayer 가 rolling window 를 지원하지 않아,
+      # 로봇을 따라 움직이는 이 창에서 원점이 처음 위치에 고정된 채 같은 칸 번호를
+      # 써서 높이가 엉뚱한 칸에 찍히고 쌓였다. RViz 에서 빈 바닥이 보라색 덩어리로
+      # 뒤덮였고, 컨트롤러가 그걸 피하느라 명령의 64% 가 제자리 회전,
+      # 205 s 에 3 m 를 갔다.
+      # 해결: ElevationLayer 에 updateOrigin() 오버라이드를 구현했다. 창 원점이
+      # 이동하면 높이 격자(cells_)를 베이스가 costmap_ 를 옮기는 것과 동일한
+      # 규칙(cell_ox/cell_oy, 겹침 영역)으로 재매핑한다. 고정 창(global)에서는
+      # isRolling()==false 라 동작이 바뀌지 않는다.
+      # 이제 컨트롤러도 2.5D 지형 등급(flyover=200)을 실시간으로 본다.
+      plugins: ["voxel_layer", "elevation_layer", "inflation_layer"]
 
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
@@ -164,6 +168,11 @@ local_costmap:
         height_thresholds:
           rover_traversable_max: 0.15
           fly_over_max: 1.2
+          # LiDAR 도 맞은 칸을 flyover 로 내릴 때 요구하는 카메라 측정 상한.
+          # 전방 카메라는 가까운 큰 물체의 윗부분이 수직 FOV 를 벗어나 실제보다
+          # 낮게 측정된다. LiDAR 가 단단한 반사를 준 칸에서 측정 높이가 이 값을
+          # 넘으면 과소추정으로 보고 flyover 로 내리지 않는다 (벽 보호).
+          confident_flyover_max: 0.6
         ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
         robot_flight_height: 0.8       # ← SSOT: robot_physical.yaml (flight_clearance)
         min_ceiling_clearance: 0.5     # ← SSOT: robot_physical.yaml
@@ -251,6 +260,11 @@ global_costmap:
         height_thresholds:
           rover_traversable_max: 0.15
           fly_over_max: 1.2            # 천장 제약상 실제 통과 가능 높이에 맞춤
+          # LiDAR 도 맞은 칸을 flyover 로 내릴 때 요구하는 카메라 측정 상한.
+          # 전방 카메라는 가까운 큰 물체의 윗부분이 수직 FOV 를 벗어나 실제보다
+          # 낮게 측정된다. LiDAR 가 단단한 반사를 준 칸에서 측정 높이가 이 값을
+          # 넘으면 과소추정으로 보고 flyover 로 내리지 않는다 (벽 보호).
+          confident_flyover_max: 0.6
         ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
         robot_flight_height: 0.8       # ← SSOT: robot_physical.yaml (flight_clearance)
         min_ceiling_clearance: 0.5     # ← SSOT: robot_physical.yaml

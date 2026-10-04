@@ -64,6 +64,8 @@ void ElevationLayer::onInitialize()
     getParam(node, p + "height_thresholds.rover_traversable_max", rover_traversable_max_);
   fly_over_max_ = getParam(node, p + "height_thresholds.fly_over_max", fly_over_max_);
   ceiling_height_ = getParam(node, p + "ceiling_height", ceiling_height_);
+  confident_flyover_max_ =
+    getParam(node, p + "height_thresholds.confident_flyover_max", confident_flyover_max_);
 
   // traversability
   max_slope_deg_ = getParam(node, p + "traversability.max_slope_angle", max_slope_deg_);
@@ -172,6 +174,73 @@ void ElevationLayer::onFootprintChanged()
 
 
 // ---------------------------------------------------------------------------
+// rolling window 원점 이동
+//
+// 베이스 Costmap2D::updateOrigin 은 unsigned char costmap_ 만 새 원점으로
+// 옮긴다. 우리의 높이 격자 cells_ 는 그와 평행한 별도 배열이라, 같은 규칙으로
+// 함께 옮겨주지 않으면 (mx,my)↔월드 대응이 어긋나 높이가 엉뚱한 칸에 남는다.
+// 셀 이동량(cell_ox, cell_oy)·겹침 영역 계산은 Costmap2D::updateOrigin 과
+// 글자 그대로 같은 식을 써서 costmap_ 와 cells_ 가 1칸도 어긋나지 않게 한다.
+// ---------------------------------------------------------------------------
+void ElevationLayer::updateOrigin(double new_origin_x, double new_origin_y)
+{
+  std::lock_guard<std::mutex> lock(data_mutex_);
+
+  // 새 원점을 격자 칸 단위 이동량으로 투영 (베이스와 동일한 truncation).
+  const int cell_ox = static_cast<int>((new_origin_x - origin_x_) / resolution_);
+  const int cell_oy = static_cast<int>((new_origin_y - origin_y_) / resolution_);
+
+  // 이동이 없으면 복사/리셋을 건너뛴다 (매 주기 불필요한 작업 방지).
+  if (cell_ox == 0 && cell_oy == 0) {
+    return;
+  }
+
+  const int sx = static_cast<int>(size_x_);
+  const int sy = static_cast<int>(size_y_);
+
+  // 새 창과 기존 창이 겹치는 영역 (기존 격자 좌표계 기준).
+  const int ll_x = std::min(std::max(cell_ox, 0), sx);
+  const int ll_y = std::min(std::max(cell_oy, 0), sy);
+  const int ur_x = std::min(std::max(cell_ox + sx, 0), sx);
+  const int ur_y = std::min(std::max(cell_oy + sy, 0), sy);
+  const int ov_w = ur_x - ll_x;
+  const int ov_h = ur_y - ll_y;
+
+  // 겹치는 부분을 임시 버퍼에 보관.
+  std::vector<ElevationCell> saved;
+  if (ov_w > 0 && ov_h > 0) {
+    saved.resize(static_cast<size_t>(ov_w) * static_cast<size_t>(ov_h));
+    for (int row = 0; row < ov_h; ++row) {
+      const size_t src = static_cast<size_t>(ll_y + row) * sx + ll_x;
+      std::copy(
+        cells_.begin() + src,
+        cells_.begin() + src + ov_w,
+        saved.begin() + static_cast<size_t>(row) * ov_w);
+    }
+  }
+
+  // 전체를 미관측으로 리셋한 뒤, 겹치는 부분만 새 위치에 되돌려 놓는다.
+  for (auto & c : cells_) {c.clear();}
+
+  if (ov_w > 0 && ov_h > 0) {
+    const int start_x = ll_x - cell_ox;
+    const int start_y = ll_y - cell_oy;
+    for (int row = 0; row < ov_h; ++row) {
+      const size_t dst = static_cast<size_t>(start_y + row) * sx + start_x;
+      std::copy(
+        saved.begin() + static_cast<size_t>(row) * ov_w,
+        saved.begin() + static_cast<size_t>(row) * ov_w + ov_w,
+        cells_.begin() + dst);
+    }
+  }
+
+  // 자체 char 격자 costmap_ 와 origin_x_/origin_y_ 는 베이스가 동일 규칙으로
+  // 갱신한다. (베이스는 자신의 access 뮤텍스만 쓰므로 data_mutex_ 와 교착 없음.)
+  nav2_costmap_2d::Costmap2D::updateOrigin(new_origin_x, new_origin_y);
+}
+
+
+// ---------------------------------------------------------------------------
 // TF
 // ---------------------------------------------------------------------------
 bool ElevationLayer::lookupToGlobal(
@@ -249,7 +318,10 @@ void ElevationLayer::pointCloudCallback(sensor_msgs::msg::PointCloud2::ConstShar
     unsigned int mx, my;
     if (!worldToMap(x, y, mx, my)) {continue;}
 
-    cells_[cellIndex(mx, my)].add(z);
+    // 카메라만이 '실제로 측정한' 높이다. 통계는 여기서만 쌓인다.
+    const size_t ci = cellIndex(mx, my);
+    cells_[ci].add(z);
+    cells_[ci].has_cloud = true;
 
     if (!any) {
       lo_x = hi_x = x;
@@ -297,6 +369,9 @@ void ElevationLayer::laserScanCallback(sensor_msgs::msg::LaserScan::ConstSharedP
 
   std::lock_guard<std::mutex> lock(data_mutex_);
 
+  bool any = false;
+  double lo_x = 0, lo_y = 0, hi_x = 0, hi_y = 0;
+
   double angle = msg->angle_min;
   for (size_t i = 0; i < msg->ranges.size(); ++i, angle += msg->angle_increment) {
     const float r = msg->ranges[i];
@@ -311,11 +386,45 @@ void ElevationLayer::laserScanCallback(sensor_msgs::msg::LaserScan::ConstSharedP
     unsigned int mx, my;
     if (!worldToMap(x, y, mx, my)) {continue;}
 
-    // LiDAR가 본 지점은 최소한 rover_traversable_max 를 넘는 장애물이다.
-    // 보수적으로 그 경계값을 넣는다.
-    cells_[cellIndex(mx, my)].add(static_cast<float>(rover_traversable_max_ + 0.01));
+    // 높이는 '모른다'. 가짜 높이를 넣지 않는다.
+    //
+    // 예전에는 여기서 rover_traversable_max + 0.01 (= 0.16 m) 을 높이로 넣었다.
+    // 그러면 classify 가 그 값을 flyover 구간(0.15 < h <= fly_over_max)으로 읽어
+    // 3 m 벽까지 "16cm 턱 — 날아서 넘으면 됨(200)" 으로 분류했고, 그 200 이
+    // obstacle_layer 의 254 를 덮어써 인플레이션이 금지 영역(253)을 만들지
+    // 못했다. 가까이 갈수록(센서 범위 안) 벽이 녹아 없어져 모서리에 끼었다.
+    //
+    // 높이를 모를 때 안전한 추정은 '낮다' 가 아니라 '못 넘는다' 이다.
+    // 사실만 남기고, 판정은 classify 가 한다.
+    cells_[cellIndex(mx, my)].hit_by_scan = true;
+
+    if (!any) {
+      lo_x = hi_x = x;
+      lo_y = hi_y = y;
+      any = true;
+    } else {
+      lo_x = std::min(lo_x, x);
+      hi_x = std::max(hi_x, x);
+      lo_y = std::min(lo_y, y);
+      hi_y = std::max(hi_y, y);
+    }
   }
-  has_dirty_ = true;
+
+  // 갱신 영역을 실제 스캔 범위로 기록한다.
+  // (예전에는 has_dirty_ 만 true 로 두어, 한 번도 갱신되지 않은 0 근처
+  //  범위가 updateBounds 로 흘러갔다.)
+  if (any) {
+    if (!has_dirty_) {
+      dirty_min_x_ = lo_x; dirty_max_x_ = hi_x;
+      dirty_min_y_ = lo_y; dirty_max_y_ = hi_y;
+      has_dirty_ = true;
+    } else {
+      dirty_min_x_ = std::min(dirty_min_x_, lo_x);
+      dirty_max_x_ = std::max(dirty_max_x_, hi_x);
+      dirty_min_y_ = std::min(dirty_min_y_, lo_y);
+      dirty_max_y_ = std::max(dirty_max_y_, hi_y);
+    }
+  }
 }
 
 
@@ -400,9 +509,38 @@ double ElevationLayer::maxStepHeight(unsigned int mx, unsigned int my) const
 unsigned char ElevationLayer::classify(unsigned int mx, unsigned int my) const
 {
   const auto & c = cells_[cellIndex(mx, my)];
-  if (!c.observed) {return NO_INFORMATION;}
 
-  const double h = c.max_z;   // 보수적으로 최대 높이를 쓴다
+  // 0) 높이 출처를 먼저 가린다.
+  //    카메라(점군)만이 높이를 '측정'한다. 2D LiDAR 는 수평 평면 한 장이라
+  //    "스캔 높이에 뭔가 있다"는 사실만 주고 높이는 원리적으로 모른다.
+  if (!c.has_cloud) {
+    // 카메라가 높이를 재지 못한 칸에서는 이 레이어가 아무 말도 하지 않는다.
+    //
+    // LiDAR 반사만 있는 칸을 여기서 254 로 찍고 싶은 유혹이 있지만, 그러면
+    // 안 된다 — 이 레이어에는 '지우는' 수단이 없기 때문이다. ObstacleLayer 는
+    // raytracing 으로 빔이 통과한 칸을 다시 free 로 되돌리지만, 여기에는
+    // 그 기능이 없어서 한 번 선 표시가 영원히 남는다 (global 은 rolling 도
+    // 아니라 창 밖으로 밀려나며 리셋되지도 않는다). 결국 유령 벽이 누적된다.
+    //
+    // 역할 분담:
+    //   ObstacleLayer  — "여기 장애물이 있나" (마킹 + 클리어 모두 책임)
+    //   ElevationLayer — "그게 얼마나 높나" (카메라가 실제로 잰 칸만)
+    // 침묵하면 updateCosts 가 master 를 건드리지 않으므로 ObstacleLayer 의
+    // 판정이 그대로 서고, 그쪽의 정상적인 클리어도 계속 동작한다.
+    // 벽이 물렁해지는 문제는 updateCosts 의 병합 규칙(카메라 확인 없이는
+    // 비용을 내리지 않는다)이 막는다.
+    return NO_INFORMATION;
+  }
+
+  const double h = c.max_z;   // 보수적으로 최대 높이를 쓴다 (카메라 측정값)
+
+  // 카메라가 쟀더라도, 가까운 큰 물체는 윗부분이 수직 FOV 를 벗어나 실제보다
+  // 낮게 측정된다. LiDAR 가 같은 칸에서 반사를 받았는데 측정 높이가 확신
+  // 구간을 넘으면 과소추정일 수 있으므로 flyover 로 내리지 않는다.
+  const auto flyover_or_block = [&]() -> unsigned char {
+      if (c.hit_by_scan && h > confident_flyover_max_) {return cost_impassable_;}
+      return cost_flyover_;
+    };
 
   // 1) 천장 제약 — 넘어가려면 로봇이 그 위를 날아야 한다
   //    장애물높이 + 비행고도 + 천장여유 > 천장  ->  통과 불가
@@ -422,7 +560,7 @@ unsigned char ElevationLayer::classify(unsigned int mx, unsigned int my) const
 
     if (slope > max_slope_deg_ || rough > max_roughness_ || step > max_step_height_) {
       // 주행은 불가하지만 높이가 낮으므로 비행으로는 넘을 수 있다
-      return cost_flyover_;
+      return flyover_or_block();
     }
     // 완전히 평탄하면 free, 아니면 주행 가능하되 비용 증가
     const bool pristine = (slope < max_slope_deg_ * 0.3) &&
@@ -430,7 +568,7 @@ unsigned char ElevationLayer::classify(unsigned int mx, unsigned int my) const
     return pristine ? cost_free_ : cost_rover_;
   }
   // 4) 로버 한계 초과, fly_over 이하 -> 비행 필요
-  return cost_flyover_;
+  return flyover_or_block();
 }
 
 
@@ -438,10 +576,23 @@ unsigned char ElevationLayer::classify(unsigned int mx, unsigned int my) const
 // Layer 인터페이스
 // ---------------------------------------------------------------------------
 void ElevationLayer::updateBounds(
-  double /*robot_x*/, double /*robot_y*/, double /*robot_yaw*/,
+  double robot_x, double robot_y, double /*robot_yaw*/,
   double * min_x, double * min_y, double * max_x, double * max_y)
 {
   if (!enabled_) {return;}
+
+  // rolling window: 창이 로봇을 따라 움직이면, 자체 격자(cells_, costmap_)를
+  // 새 원점에 맞춰 이동시킨다. 이게 없으면 로봇이 전진할 때 높이가 이전
+  // 좌표에 그대로 남아 빈 바닥이 장애물로 번진다 (로컬 costmap 사용 조건).
+  // 고정 창(글로벌 costmap)에서는 isRolling()==false 라 아무 일도 하지 않는다.
+  // ObstacleLayer 등 nav2 기본 레이어와 동일한 패턴.
+  // updateOrigin 은 내부에서 data_mutex_ 를 직접 잠그므로, 아래 lock 보다
+  // 먼저 (lock 밖에서) 호출해야 재진입 교착을 피한다.
+  if (layered_costmap_->isRolling()) {
+    updateOrigin(
+      robot_x - getSizeInMetersX() / 2.0,
+      robot_y - getSizeInMetersY() / 2.0);
+  }
 
   std::lock_guard<std::mutex> lock(data_mutex_);
   if (!has_dirty_) {return;}
@@ -473,17 +624,30 @@ void ElevationLayer::updateCosts(
     for (int i = min_i; i < max_i; ++i) {
       const auto mx = static_cast<unsigned int>(i);
       const auto my = static_cast<unsigned int>(j);
+      const size_t ci = cellIndex(mx, my);
       const unsigned char c = classify(mx, my);
       if (c == NO_INFORMATION) {continue;}
 
-      // 자체 costmap 에도 기록해 둔다 (디버그/시각화용)
-      costmap_[cellIndex(mx, my)] = c;
+      // 자체 격자에는 지형 등급을 그대로 남긴다 (플래너가 여기서 읽는다).
+      costmap_[ci] = c;
 
-      // elevation 이 관측한 셀은 이 레이어가 지형 판정의 최종 권한을 갖는다.
-      // obstacle_layer(2D LiDAR)가 flyover 박스를 254 로 찍어도, 여기서
-      // 200(flyover) 로 재분류해 덮어쓴다. 미관측 셀은 위에서 continue 하므로
-      // 카메라가 못 본 동적 장애물의 obstacle_layer 판정은 그대로 유지된다.
-      master_grid.setCost(mx, my, c);
+      // master 병합 규칙
+      //   비용을 '올리는' 것은 언제나 허용한다 (보수적이라 안전하다).
+      //   비용을 '내리는' 것은 카메라가 실제로 높이를 잰 칸에서만 허용한다.
+      //
+      // 예전에는 조건 없이 덮어썼다. 그래서 LiDAR 만 본 칸의 flyover(200)
+      // 판정이 obstacle_layer 의 254 를 끌어내렸고, 인플레이션이 금지
+      // 영역(253)을 만들지 못해 컨트롤러가 벽으로 들어갔다.
+      const unsigned char old_cost = master_grid.getCost(mx, my);
+      if (old_cost == NO_INFORMATION || c >= old_cost) {
+        master_grid.setCost(mx, my, c);
+      } else if (cells_[ci].has_cloud) {
+        // 카메라가 "이 칸은 낮다"고 측정한 경우에만 다른 레이어 판정을 완화한다.
+        // 2.5D 의 핵심 기능(넘을 수 있는 장애물을 200 으로 내려 비행 경로를
+        // 열어주는 것)은 이 경로로 그대로 동작한다.
+        master_grid.setCost(mx, my, c);
+      }
+      // 그 외(LiDAR 만 본 칸)는 기존 판정을 유지한다 — 통행 가능성을 발명하지 않는다.
     }
   }
 
