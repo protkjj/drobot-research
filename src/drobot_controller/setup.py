@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'teleop_keyboard = drobot_controller.teleop_keyboard:main',
+            'transform_manager = drobot_controller.transform_manager:main',
         ],
     },
 )

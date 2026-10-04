@@ -30,3 +30,4 @@ frames_*.gv
 sim.log
 tmp.json
 /sim_*.json
+dumps/
