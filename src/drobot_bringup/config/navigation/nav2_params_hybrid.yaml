@@ -277,7 +277,35 @@ local_costmap:
           # '넘어갈 수 있음'과 '막혔음'을 구분할 실익이 없다 — 바퀴로는 둘 다
           # 못 간다. 비행이 동작하면 되돌리고, 모드에 따라 로컬 코스트맵을
           # 바꾸는 쪽으로 가야 한다.
-          fly_over: 254
+          # 설계값 200 이다. 2026-10-05 에 254 / 253 을 시도했다가 되돌렸다.
+          #
+          # 200 의 의미 (state_space.cpp):
+          #   collides() = false, roverTraversable() = false
+          #   -> "바퀴로는 못 가지만 AIR 모드로는 갈 수 있다"
+          # A* 는 200 칸에서 GROUND->AIR 전환을 고르고, buildSwitchPlan() 이
+          # 이륙/착륙 전환점과 total_flight_energy 를 만든다. 200 이 없으면
+          # 비행 경로라는 선택지 자체가 생기지 않는다 — 2.5D 의 존재 이유다.
+          #
+          # 오늘 시도한 세 값과 실측 결과:
+          #   200 -> DWB 가 200 을 '조금 비싼 바닥'으로 읽고 밟는다.
+          #          로봇이 측정 높이 0.564 m 인 칸 (3.775, 4.025) 에 올라타 전복.
+          #          플래너는 피해 갔다 (경로 157 점 중 flyover 0 개) — 밟은 것은
+          #          컨트롤러다. ObstacleFootprint.scale 0.02 가 이를 키웠다.
+          #   254 -> 전복은 막힌다. 경로도 통로 중앙(x 4.44)으로 옮겨가고
+          #          로컬 금지 경로점이 12 -> 0 이 되었다 (dumps/cm2, plan4, local3).
+          #          그러나 코너 교착은 그대로였다 (dumps/bag_0418, 369 초 동안
+          #          x 3.80 에서 44 초 주기로 backup->전진 7 회 반복, x 3.85 미돌파).
+          #   253 -> 위험. elevation_layer.cpp 의
+          #            else if (has_cloud && c >= cost_flyover_) { setCost(c); }
+          #          분기가 cost_flyover_ = 200 을 전제로 쓰여 있어, 253 이면
+          #          벽 셀의 254 를 253 으로 끌어내린다. InflationLayer 는 254
+          #          에서만 번지므로 벽 주위 완충이 사라지고 로봇이 벽에 박는다
+          #          (dumps/bag_0427: y 3.956 까지 진입. 벽이 y 3.95).
+          #
+          # 즉 코너 교착은 이 값과 무관하다 (200/253/254 모두에서 발생).
+          # 다음 단계: FollowPath 에 publish_evaluation 을 켜고 /evaluation 에서
+          # 어떤 critic 이 궤적을 떨어뜨리는지 직접 본다.
+          fly_over: 200
           impassable: 254
         use_pointcloud: true
         use_laserscan: true
@@ -412,7 +440,35 @@ global_costmap:
           #
           # 추력이 생기면 이 값만 200 으로 되돌려 "우회 vs 비행" 에너지 비교를
           # 재개한다. 그때까지는 지상 전용 우회가 정직한 baseline 이다.
-          fly_over: 254
+          # 설계값 200 이다. 2026-10-05 에 254 / 253 을 시도했다가 되돌렸다.
+          #
+          # 200 의 의미 (state_space.cpp):
+          #   collides() = false, roverTraversable() = false
+          #   -> "바퀴로는 못 가지만 AIR 모드로는 갈 수 있다"
+          # A* 는 200 칸에서 GROUND->AIR 전환을 고르고, buildSwitchPlan() 이
+          # 이륙/착륙 전환점과 total_flight_energy 를 만든다. 200 이 없으면
+          # 비행 경로라는 선택지 자체가 생기지 않는다 — 2.5D 의 존재 이유다.
+          #
+          # 오늘 시도한 세 값과 실측 결과:
+          #   200 -> DWB 가 200 을 '조금 비싼 바닥'으로 읽고 밟는다.
+          #          로봇이 측정 높이 0.564 m 인 칸 (3.775, 4.025) 에 올라타 전복.
+          #          플래너는 피해 갔다 (경로 157 점 중 flyover 0 개) — 밟은 것은
+          #          컨트롤러다. ObstacleFootprint.scale 0.02 가 이를 키웠다.
+          #   254 -> 전복은 막힌다. 경로도 통로 중앙(x 4.44)으로 옮겨가고
+          #          로컬 금지 경로점이 12 -> 0 이 되었다 (dumps/cm2, plan4, local3).
+          #          그러나 코너 교착은 그대로였다 (dumps/bag_0418, 369 초 동안
+          #          x 3.80 에서 44 초 주기로 backup->전진 7 회 반복, x 3.85 미돌파).
+          #   253 -> 위험. elevation_layer.cpp 의
+          #            else if (has_cloud && c >= cost_flyover_) { setCost(c); }
+          #          분기가 cost_flyover_ = 200 을 전제로 쓰여 있어, 253 이면
+          #          벽 셀의 254 를 253 으로 끌어내린다. InflationLayer 는 254
+          #          에서만 번지므로 벽 주위 완충이 사라지고 로봇이 벽에 박는다
+          #          (dumps/bag_0427: y 3.956 까지 진입. 벽이 y 3.95).
+          #
+          # 즉 코너 교착은 이 값과 무관하다 (200/253/254 모두에서 발생).
+          # 다음 단계: FollowPath 에 publish_evaluation 을 켜고 /evaluation 에서
+          # 어떤 critic 이 궤적을 떨어뜨리는지 직접 본다.
+          fly_over: 200
           impassable: 254
         use_pointcloud: true
         use_laserscan: true
