@@ -26,6 +26,154 @@
 
 ---
 
+## 2026-10-05 — 비행 전환 체인 완성 (A 트랙) + 비행 담당자 인터페이스
+
+### 결과
+
+**계획 → 전환점 → 변신 실행까지 처음으로 끝까지 이어졌다.**
+
+```
+플래너가 지상 불가를 인식 → 비행 구간 계획 → /mode_switch_points
+  → mode_switch_executor 가 이륙 지점 도달 판정 → /transform_to_drone
+  → 암 4 개 회전
+```
+
+실측 (`base_map_h0.5_nogap`, `energy:=derived`, `use_prior_map:=true`):
+
+```
+이륙 (1.975, 3.825)  고도 0.8 m  0.82 Wh
+착륙 (2.075, 8.775)  고도 0.8 m  0.62 Wh
+total_flight_energy 4.69 Wh
+```
+
+이전에는 `switch_points` 가 **항상 빈 배열**이었다. 원인 네 개를 차례로 제거했다.
+
+### 제거한 원인 (전부 실측 근거 있음)
+
+**1. BT 가 계획 실패마다 글로벌 costmap 을 통째로 지웠다**
+
+`navigate_with_replanning.xml` 의 `ComputePathToPose` 복구 분기에
+`ClearEntireCostmap(global)` 이 남아 있었다. 같은 파일 36 행 주석이 경고하던 루프를
+그대로 돌고 있었다 — 바깥 `RecoveryActions` 에서는 뺐는데 안쪽은 못 봤다.
+
+```
+9 초 간격 두 덤프:  금지(>=99) -> 자유  1721 칸,  LETHAL 1001 -> 466
+지워진 범위 x -0.3~6.2, y -0.3~11.3 (맵 전체)
+  -> raytrace_max_range 3.0 m 로는 불가능. 센서 clearing 이 아니라 통째 삭제였다
+제거 후:  지워진 칸 0,  학습한 칸 673  (단조 증가)
+```
+
+증상은 "A 를 막힌 걸로 확인 → B 로 재계획 → B 도 막힘 → **다시 A**" 의 무한 진동이었다.
+
+**2. 미관측 영역이 자유공간이라 지상 경로가 늘 존재했다**
+
+`track_unknown_space: false` + `LayerTerrainSource::roverTraversable()` 이
+`NO_INFORMATION` 을 낙관(true)으로 처리한다.
+
+```
+높이 관측률 4.8% (11,440 / 240,000)
+지상 통과가 물리적으로 불가능한 nogap 월드에서도 박스 영역 100% 가 미관측
+```
+
+→ `ElevationLayer::loadPriorMap()` 으로 정답 높이맵을 심는다 (`use_prior_map:=true`,
+기본 `false`). **이걸 켜지 않으면 전환점은 영원히 생기지 않는다.**
+
+**3. prior map 을 심으면 장애물 둘레에 flyover 링이 생겼다**
+
+`classify()` 3 번 분기에서, 장애물 옆 '평평한 바닥' 칸이 이웃과의 단차(0.5 m)와
+절벽을 가로지른 평면 피팅 때문에 주행 불가로 판정돼 flyover(200) 로 승격됐다.
+그 링이 통로를 막아 플래너가 해를 못 찾았다 ("해 없음, 425 노드 확장").
+
+→ `localSlopeDeg` / `maxStepHeight` 에서 `rover_traversable_max_` 를 넘는 이웃을
+제외한다. 바닥 옆에 턱이 있다고 그 바닥을 못 밟는 것이 아니다 — 턱은 자기 칸으로
+따로 판정되고 접근 여유는 `inflation_layer` 가 담당한다. 양쪽 다 낮은 진짜 험지는
+여전히 걸린다.
+
+**4. (회귀) stash 에서 옛 런치 파일을 통째로 가져와 렌더 엔진 수정이 사라졌다**
+
+`with_render_engine()` 이 없어져 월드에 박힌 `ogre`(v1) 가 그대로 쓰였다. ogre v1
+에서 gpu_lidar 는 **모든 빔에 `range_min`(0.5 m)** 을 내므로 로봇 둘레 0.5 m 에
+가짜 벽이 생기고 카메라도 깨졌다. prior_map 추가분만 HEAD 위에 다시 얹어 해결.
+
+### 새로 만든 것
+
+| | |
+|---|---|
+| `drobot_controller/transform_manager` | 암 4 개 동시 회전. `/transform_to_drone`, `/transform_to_rover` (std_srvs/Trigger) |
+| `drobot_controller/mode_switch_executor` | `/mode_switch_points` 구독 → 전환점 반경(0.9 m) 안에서 변신 서비스 호출. **비행 코드가 들어올 자리** |
+| `worlds/base_map_h0.5_nogap.sdf` | 박스가 방을 완전히 가로막음 → 지상 불가, 비행 강제 |
+| `worlds/base_map_h0.5_narrow.sdf` | 틈 0.70 m → 지상도 가능한데 비행이 유리 |
+| `maps/*.heightmap` 8 개 | prior map 입력 |
+
+실행 절차는 `RUN.md` **3-B 절**.
+
+---
+
+### 비행 담당자에게 — 인터페이스 계약
+
+**비행 제어는 `mode_switch_executor` 안에서 호출된다.** 지금 그 자리가 비어 있고,
+액션 서버만 구현하면 양쪽 코드를 서로 안 봐도 붙는다.
+
+제안: `drobot_msgs/action/ExecuteFlightSegment`
+
+```
+# Goal — 한 비행 구간 (이륙점 -> 착륙점)
+geometry_msgs/Point  takeoff_position     # map 프레임
+geometry_msgs/Point  landing_position     # map 프레임
+float64              flight_altitude      # 지면 기준 (m)
+uint32               pair_id
+---
+# Result
+bool    success
+string  message
+float64 actual_energy_wh                  # 실측 소모 — 에너지 모델 검증에 필요
+float64 actual_time_s
+---
+# Feedback
+geometry_msgs/Point  current_position
+float64              distance_remaining
+```
+
+서비스가 아니라 액션인 이유: 비행은 수십 초 걸리고 중간 취소와 진행 피드백이 필요하다.
+
+**호출 순서**
+
+```
+1. 이륙 지점 도달 판정          mode_switch_executor   (구현됨)
+2. /transform_to_drone          transform_manager      (구현됨, 완료 대기)
+3. ExecuteFlightSegment         << 비행 담당 >>         (비어 있음)
+4. /transform_to_rover          transform_manager      (구현됨)
+5. Nav2 가 나머지 지상 구간 계속                        (자동)
+```
+
+**정해두어야 할 것**
+
+- **프레임은 전부 `map`.** 전환점이 map 프레임이라 섞으면 EKF 보정분만큼 틀어진다
+- **실패 처리**: 액션이 실패를 돌려주면 변신을 되돌리고 Nav2 에 맡기는 쪽을 권한다
+  (그 자리에 서면 복구 수단이 없다)
+- **`actual_energy_wh` 를 꼭 채워 달라.** 이 연구의 결론이 에너지 모델이라,
+  모델 예측(위 예에서 4.69 Wh)과 실측을 비교할 수 없으면 검증 방법이 없다
+
+**현재 상태**: 추력 물리가 양쪽 repo 어디에도 없다. `drobot.urdf.xacro` 에 프로펠러
+링크 자체가 없고(링크 16 개에 rotor/prop 없음), `gazebo.xacro` 에도 추력 플러그인이
+없다. Gazebo Harmonic 내장 `MulticopterMotorModel` + `MulticopterVelocityControl`
+조합이면 PX4 없이도 된다 (px4_msgs 빌드 OOM 을 피할 수 있다).
+
+---
+
+### 남은 문제 (A/B 트랙)
+
+| 문제 | 상태 |
+|---|---|
+| 코너에서 간헐적 교착 — `fly_over` 200/253/254 **전부에서** 발생 | 원인 미규명. 다음 단계는 FollowPath 에 `publish_evaluation: true` 를 켜고 `/evaluation` 에서 어떤 critic 이 궤적을 떨어뜨리는지 보는 것 |
+| 착륙 지점이 장애물 끝(y 7.0)보다 1.8 m 뒤에 잡힌다 | 에너지 비교 정확도에 영향. 미확인 |
+| 에너지 파라미터가 임의값 | `default` 는 `hover_power`(50 W)와 72 배 어긋난다. `derived` 도 측정값이 아니다. 민감도 분석(비행이 이기는 조건을 비율의 함수로 제시)이 대안 |
+| `fly_over: 253` 은 쓰면 안 된다 | `elevation_layer.cpp` 의 비용 하향 분기가 `cost_flyover_ = 200` 을 전제로 쓰여 있어, 253 이면 벽의 254 를 끌어내린다. inflation 이 사라져 로봇이 벽에 박는다 (실측: y 3.956 진입, 벽이 y 3.95) |
+| 변신이 목표 각도에 못 간다 (잔차 0.15~0.30 rad) | 암 조인트 `friction` 5.0(앞)/3.0(뒤) 과 P 게인 20 의 평형점 `friction/20` = 0.25/0.15 rad 과 일치. 게인 상향은 2026-10-05 에 시도했다가 시뮬이 불안정해져 되돌렸다 — 마찰 쪽을 봐야 한다 |
+| '비행을 선택하는가' 는 아직 미검증 | `nogap` 은 비행이 강제라 증거가 못 된다. `narrow`(틈 0.70 m)에서 봐야 한다 |
+
+---
+
 ## 1. 오늘 한 것 (2026-10-01 ~ 02)
 
 ### C 트랙 — 소유 3개 패키지의 빈칸을 채웠다

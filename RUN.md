@@ -145,6 +145,159 @@ mode_manager 가 한 것이다. 둘이 어긋나면 그 자체가 결과다.
 
 ---
 
+## 3-B. 비행 전환 테스트 (계획 → 전환점 → 변신)
+
+플래너가 "여기서부터 날아야 한다"고 판단한 지점에서 로봇이 실제로 드론 형태로
+변신하는지 확인한다. **실제 비행(추력)은 아직 없다** — 프로펠러 링크 자체가 URDF
+에 없고, 비행 제어는 별도 담당이다. 여기서 검증하는 범위는 변신까지다.
+
+### 전제: `use_prior_map:=true` 가 반드시 필요하다
+
+이걸 켜지 않으면 전환점이 **하나도 생기지 않는다.** 버그가 아니라 구조다:
+
+- `global_costmap` 은 `track_unknown_space: false` 라 미관측 = 자유공간이다
+- `LayerTerrainSource::roverTraversable()` 은 `NO_INFORMATION` 을 낙관(true)으로 본다
+- 실측(2026-10-05): 높이 관측률 **4.8%**. 지상 통과가 물리적으로 불가능한
+  `nogap` 월드에서도 박스 영역의 **100% 가 미관측**이었다
+- 그래서 플래너는 늘 '안 본 곳을 지나는 지상 경로'를 찾아낸다 → 비행할 이유가 없다
+
+`use_prior_map:=true` 는 벤치마크 맵의 정답 높이맵(`drobot_description/maps/*.heightmap`)
+을 ElevationLayer 에 미리 심는다. 센서는 그 위에 덧씌우므로 동적 장애물 대응은
+그대로다. 맵 파일이 없는 월드에서는 무시되고 센서만으로 동작한다.
+
+### 터미널 1 — 시뮬 + Nav2
+
+```bash
+cd ~/drobot-research
+colcon build --symlink-install --packages-select drobot_costmap_2_5d drobot_description drobot_bringup drobot_controller
+source install/setup.bash
+
+ros2 launch drobot_bringup navigation.launch.py \
+  world:=base_map_h0.5_nogap planner:=proposed energy:=derived \
+  robot_model:=mesh use_prior_map:=true 2>&1 | tee dumps/launch.log
+```
+
+띄운 뒤 **로그 두 줄을 반드시 확인한다.** 하나라도 없으면 그 다음은 의미가 없다.
+
+```
+[INFO] render_engine=ogre2 -> /tmp/drobot_..._ogre2_....sdf
+[global_costmap.global_costmap]: prior_map 적용: '...' (120x220 @ 0.050, 원점 0.00,0.00)
+    — 26400 칸 심음, 0 칸은 costmap 밖
+```
+
+- 첫 줄이 `ogre` 면 gpu_lidar 가 **모든 빔에 range_min(0.5 m)** 을 낸다. 로봇 둘레
+  0.5 m 에 가짜 벽이 생기고 카메라도 깨진다 (4-1 참고)
+- 둘째 줄이 없으면 `prior_map` 파라미터가 레이어까지 안 갔다. params 파일의
+  두 `elevation_layer` 블록에 `prior_map: ""` 키가 있는지 본다 — `RewrittenYaml`
+  은 **이미 있는 키만** 치환한다
+
+### 터미널 2 — 변신 관리자
+
+```bash
+source ~/drobot-research/install/setup.bash
+ros2 run drobot_controller transform_manager
+```
+
+암 4 개에 `cmd_pos` 를 **동시에** 쏘고 `/joint_states` 로 완료를 기다린다.
+서비스 두 개를 연다: `/transform_to_drone`, `/transform_to_rover`.
+
+### 터미널 3 — 전환점 실행기
+
+```bash
+source ~/drobot-research/install/setup.bash
+ros2 run drobot_controller mode_switch_executor
+```
+
+**터미널 2 를 먼저 띄울 것.** 서비스가 없으면 경고만 내고 변신하지 않는다.
+
+`/mode_switch_points` 를 구독해, 로봇이 전환점 반경(기본 0.9 m) 안에 들어오면
+해당 서비스를 부른다. 거리 비교는 TF(`map` → `base_footprint`)로 한다 — 전환점은
+map 프레임이고 `/odom` 은 odom 프레임이라 그대로 비교하면 EKF 보정분만큼 틀린다.
+
+### 터미널 4 — 목표 전송
+
+RViz 의 **Nav2 Goal** 로 박스 반대편(예: x 2.0, y 10.0)을 찍는다.
+
+### 확인
+
+```bash
+ros2 topic echo /mode_switch_points --once --full-length
+```
+
+정상이면 전환점 2 개가 나온다 (`base_map_h0.5_nogap`, `energy:=derived` 실측):
+
+```
+switch_points:
+- position: {x: 1.975, y: 3.825}   switch_type: 0   # GROUND_TO_AIR
+  flight_altitude: 0.8   estimated_energy_cost: 0.82
+- position: {x: 2.075, y: 8.775}   switch_type: 1   # AIR_TO_GROUND
+  flight_altitude: 0.8   estimated_energy_cost: 0.62
+total_flight_energy: 4.69
+```
+
+터미널 3 에는 이렇게 뜬다:
+
+```
+새 전환 계획: 전환점 2 개, 예상 비행 에너지 4.691 Wh
+  [0] 이륙 ( 1.98,  3.83) 고도 0.80 m
+  [0] 착륙 ( 2.08,  8.78) 고도 0.80 m
+[0] 이륙 지점 도달 (거리 0.18 m) — /transform_to_drone 호출
+```
+
+그리고 Gazebo 에서 **암 4 개가 동시에 올라간다.** 거기까지가 이 테스트의 범위다.
+
+`변신 실패: ... timeout ... 오차 0.2~0.3 rad` 경고는 **예상된 것**이다. 암 조인트의
+`friction=5.0`(앞) / `3.0`(뒤) 과 P 게인 20 이 만드는 평형 오차가 `friction/20`
+= 0.25 / 0.15 rad 이고, 실측 잔차가 거기에 맞는다. 모션이 보이면 이 테스트는 통과다.
+
+### 로봇이 전환점 앞에서 멈추는 것은 정상이다
+
+로컬 costmap 의 `fly_over` 가 254(LETHAL)라 바퀴로는 더 못 간다. **그 멈추는 자리가
+곧 이륙 지점이다.** 글로벌은 200 으로 둬야 플래너가 AIR 모드를 고를 수 있다
+(254 면 `collides()` 가 AIR 를 탐색에서 배제한다). 이 비대칭은 의도된 것이다.
+
+### 플래너 없이 배선만 확인하기
+
+전환점이 안 나오는 상황에서도 "전환점 → 변신" 경로만 따로 시험할 수 있다.
+로봇 위치를 찍고:
+
+```bash
+ros2 run tf2_ros tf2_echo map base_footprint
+```
+
+그 좌표로 가짜 계획을 쏜다 (QoS 를 맞춰야 한다 — 플래너가 `transient_local` 로
+퍼블리시하므로 구독도 그렇게 되어 있다):
+
+```bash
+ros2 topic pub --qos-durability transient_local --qos-reliability reliable -r 1 \
+  /mode_switch_points drobot_msgs/msg/ModeSwitchPlan \
+  "{header: {frame_id: 'map'}, switch_points: [{header: {frame_id: 'map'}, \
+    position: {x: 2.0, y: 1.0, z: 0.0}, switch_type: 0, flight_altitude: 0.8, \
+    estimated_energy_cost: 0.5, pair_id: 0}], total_flight_energy: 0.5}"
+```
+
+`switch_type: 1` 로 바꾸고 `pair_id` 를 다르게 주면 `/transform_to_rover` 가 불린다
+(같은 `pair_id` + `switch_type` 조합은 한 번만 실행된다).
+
+### 테스트 월드
+
+| 월드 | 0.5 m 박스 | 틈 | 쓰임 |
+|---|---|---|---|
+| `base_map_h0.5` | x 0.0~4.0 | 1.90 m | 원본. 우회가 싸서 비행이 선택되지 않는다 |
+| `base_map_h0.5_nogap` | x 0.0~6.0 | 없음 | **지상 경로 불가 → 비행 강제.** 배선 확인용 |
+| `base_map_h0.5_narrow` | x 0.0~5.2 | 0.70 m | 지상도 가능한데 비행이 유리 → **'선택'을 보는 쪽** |
+
+`nogap` 은 선택지가 없으므로 "플래너가 비행을 고른다"의 증거가 되지 못한다.
+연구 결과로 쓸 수 있는 건 `narrow` 쪽이다.
+
+### 종료
+
+```bash
+pkill -f gz-sim; pkill -f ruby; pkill -f rviz2; pkill -f ros2
+```
+
+---
+
 ## 4. 함정 (전부 실제로 겪은 것)
 
 ### 4-1. Gazebo 가 조용히 멈춘다
