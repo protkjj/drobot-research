@@ -11,6 +11,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 #include <nav2_costmap_2d/cost_values.hpp>
 #include <nav2_costmap_2d/costmap_math.hpp>
@@ -95,6 +98,7 @@ void ElevationLayer::onInitialize()
 
   publish_elevation_ = getParam(node, p + "publish_elevation_grid", publish_elevation_);
   clear_on_reset_ = getParam(node, p + "clear_on_reset", clear_on_reset_);
+  prior_map_ = getParam(node, p + "prior_map", std::string{});
 
   // 자체 격자(costmap_)에서 '아직 못 본 칸'의 값.
   // Costmap2D 기본 생성자는 default_value_ 를 초기화하지 않아서 (nav2 jazzy),
@@ -105,6 +109,10 @@ void ElevationLayer::onInitialize()
   default_value_ = NO_INFORMATION;
 
   matchSize();
+  // matchSize() 가 cells_ 를 만든 뒤에 심어야 한다.
+  if (!prior_map_.empty()) {
+    loadPriorMap(prior_map_);
+  }
   current_ = true;
 
   // 구독
@@ -163,6 +171,78 @@ void ElevationLayer::matchSize()
   size_x_ = master->getSizeInCellsX();
   size_y_ = master->getSizeInCellsY();
   cells_.assign(static_cast<size_t>(size_x_) * size_y_, ElevationCell{});
+}
+
+
+// ---------------------------------------------------------------------------
+// 정답 높이맵 (prior_map)
+// ---------------------------------------------------------------------------
+void ElevationLayer::loadPriorMap(const std::string & path)
+{
+  std::ifstream in(path);
+  if (!in) {
+    RCLCPP_WARN(logger_, "prior_map 을 열 수 없다: '%s' — 센서만으로 동작한다", path.c_str());
+    return;
+  }
+
+  // 주석(#) 을 건너뛰고 헤더 한 줄을 읽는다:
+  //   <width> <height> <resolution> <origin_x> <origin_y>
+  std::string line;
+  unsigned int pw = 0, ph = 0;
+  double pres = 0.0, pox = 0.0, poy = 0.0;
+  bool header_ok = false;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#') {continue;}
+    std::istringstream hs(line);
+    if (hs >> pw >> ph >> pres >> pox >> poy) {header_ok = true;}
+    break;
+  }
+  if (!header_ok || pw == 0 || ph == 0 || pres <= 0.0) {
+    RCLCPP_WARN(logger_, "prior_map 헤더가 잘못됐다: '%s'", path.c_str());
+    return;
+  }
+
+  std::lock_guard<std::mutex> lock(data_mutex_);
+
+  size_t seeded = 0, outside = 0, rows = 0;
+  for (unsigned int j = 0; j < ph; ++j) {
+    if (!std::getline(in, line)) {break;}
+    std::istringstream rs(line);
+    double h = 0.0;
+    for (unsigned int i = 0; i < pw && (rs >> h); ++i) {
+      // 격자 칸의 중심을 월드 좌표로. costmap 해상도가 달라도 worldToMap 이
+      // 알맞은 칸으로 보내준다 (여러 칸이 한 칸에 모이면 add() 가 최대값을
+      // 남기므로 보수적이다).
+      const double wx = pox + (i + 0.5) * pres;
+      const double wy = poy + (j + 0.5) * pres;
+      unsigned int mx, my;
+      if (!worldToMap(wx, wy, mx, my)) {++outside; continue;}
+      const size_t ci = cellIndex(mx, my);
+      cells_[ci].add(static_cast<float>(h));
+      // 정답 높이는 카메라 측정보다 믿을 만하다. has_cloud 를 세워
+      // classify() 와 병합 규칙이 '높이를 아는 칸'으로 다루게 한다.
+      cells_[ci].has_cloud = true;
+      ++seeded;
+    }
+    ++rows;
+  }
+
+  // 전체를 새로 판정해야 하므로 갱신 영역을 맵 전체로 잡는다.
+  dirty_min_x_ = pox;
+  dirty_min_y_ = poy;
+  dirty_max_x_ = pox + pw * pres;
+  dirty_max_y_ = poy + ph * pres;
+  has_dirty_ = true;
+
+  RCLCPP_INFO(
+    logger_,
+    "prior_map 적용: '%s' (%ux%u @ %.3f m, 원점 %.2f,%.2f) — %zu 칸 심음, "
+    "%zu 칸은 costmap 밖",
+    path.c_str(), pw, ph, pres, pox, poy, seeded, outside);
+  if (rows != ph) {
+    RCLCPP_WARN(
+      logger_, "prior_map 행 수가 헤더와 다르다: 헤더 %u, 실제 %zu", ph, rows);
+  }
 }
 
 
@@ -451,6 +531,11 @@ double ElevationLayer::localSlopeDeg(unsigned int mx, unsigned int my) const
       }
       const auto & c = cells_[cellIndex(nx, ny)];
       if (!c.observed) {continue;}
+      // 장애물 이웃은 '지형'이 아니다 — 평면 피팅에서 뺀다. 2026-10-05
+      // 절벽을 가로질러 평면을 맞추면 바닥 칸의 경사가 수십 도로 나와,
+      // 멀쩡한 바닥이 주행 불가로 판정된다 (장애물 둘레의 flyover 링).
+      // 턱 너머 칸은 자기 높이로 따로 판정되므로 중복 처벌이기도 하다.
+      if (c.mean() > rover_traversable_max_) {continue;}
 
       const double px = dx * res;
       const double py = dy * res;
@@ -499,6 +584,18 @@ double ElevationLayer::maxStepHeight(unsigned int mx, unsigned int my) const
       }
       const auto & o = cells_[cellIndex(nx, ny)];
       if (!o.observed) {continue;}
+      // 장애물 이웃과의 '단차'는 이 칸의 거칠기가 아니라 옆에 장애물이
+      // 있다는 사실이다. 그 칸은 자기 높이로 flyover/impassable 이 되고,
+      // 접근 여유는 inflation_layer 가 담당한다. 2026-10-05
+      //
+      // 이걸 빼지 않으면: 0.5 m 박스 옆 평지가 step 0.5 m > 0.05 에 걸려
+      // flyover(200) 로 승격되고, 모든 장애물 둘레에 200 링이 생긴다.
+      // prior_map 으로 전 영역에 높이를 심으면 링이 맵 전체를 감싸
+      // 플래너가 해를 못 찾는다 (실측: "해 없음, 425 노드 확장").
+      //
+      // 진짜 험지(양쪽 다 낮은데 0.08 m 차이)는 여전히 걸린다 —
+      // 두 칸 모두 rover_traversable_max_ 이하이기 때문이다.
+      if (o.mean() > rover_traversable_max_) {continue;}
       worst = std::max(worst, std::fabs(static_cast<double>(c.mean() - o.mean())));
     }
   }

@@ -157,6 +157,20 @@ private:
   /// 디버그용 높이맵 퍼블리시
   void publishElevationGrid();
 
+  /// 정답 높이맵을 파일에서 읽어 cells_ 에 미리 심는다 (prior_map 파라미터).
+  ///
+  /// 왜 필요한가: 센서는 표면만 본다. 2D LiDAR 는 장애물 앞면에 막혀 내부를
+  /// 못 보고, 전방 카메라도 낮은 박스 윗면을 비스듬히 스쳐 거의 못 본다.
+  /// 그런데 global_costmap 이 track_unknown_space: false 라 미관측이
+  /// 자유공간이 되어, 플래너가 장애물 내부를 관통하는 경로를 냈다.
+  ///   실측 (2026-10-05): 높이 관측률 4.8%, nogap 월드에서 박스 영역의
+  ///   100% 가 미관측 -> 지상 경로가 늘 존재 -> 비행이 선택되지 않음.
+  ///
+  /// 높이를 심으면 classify() 가 평소대로 돌아 내부까지 등급이 매겨진다.
+  /// 센서는 그 위에 덧씌우므로 동적 장애물 대응은 그대로다.
+  /// 실패해도 경고만 남기고 계속한다 — 맵이 없는 월드가 정상이기 때문이다.
+  void loadPriorMap(const std::string & path);
+
   size_t cellIndex(unsigned int mx, unsigned int my) const
   {
     return static_cast<size_t>(my) * size_x_ + mx;
@@ -210,6 +224,9 @@ private:
   double min_obstacle_height_ = -0.5;   ///< 이보다 낮은 점은 무시 (노이즈)
   double max_obstacle_height_ = 3.0;    ///< 이보다 높은 점은 무시 (천장)
   double max_sensor_range_ = 4.0;       ///< D435i depth 유효 범위
+
+  /// 정답 높이맵 파일 경로. 비어 있으면 쓰지 않는다 (센서만으로 동작).
+  std::string prior_map_;
 
   // 동작
   bool enabled_param_ = true;

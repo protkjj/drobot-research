@@ -16,8 +16,20 @@
         <RateController hz="2.0">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}"/>
-            <Sequence name="ClearAndReplan">
-              <ClearEntireCostmap name="ClearGlobalCostmap" service_name="global_costmap/clear_entirely_global_costmap"/>
+            <!-- 글로벌 costmap 을 지우지 않는다. 2026-10-05
+                 여기 ClearEntireCostmap(global) 이 있었다. 계획이 실패할 때마다
+                 학습한 장애물이 통째로 사라져, 아래 36 행 주석이 경고한 루프가
+                 그대로 일어났다.
+                 실측 (dumps/cm_atA.txt vs cm_atB.txt, 9 초 간격):
+                   LETHAL  1001 -> 466,  금지(>=99) -> 자유 로 내려간 칸 1721
+                   지워진 범위 x -0.30~6.15, y -0.25~11.25 (맵 전체)
+                 raytrace_max_range 가 3.0 m 이므로 센서 clearing 으로는
+                 설명되지 않는 범위다 — 통째 삭제였다.
+                 그 결과 A 를 막힌 것으로 확인 -> 지워짐 -> B 로 계획 ->
+                 B 도 막힘 -> 지워짐 -> 다시 A. 무한 진동.
+                 대신 센서가 갱신될 시간만 주고 같은 계획을 재시도한다. -->
+            <Sequence name="WaitAndReplan">
+              <Wait wait_duration="1.0" name="WaitForSensors"/>
               <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}"/>
             </Sequence>
           </RecoveryNode>

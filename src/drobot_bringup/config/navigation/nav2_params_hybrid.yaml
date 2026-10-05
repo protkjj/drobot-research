@@ -316,6 +316,10 @@ local_costmap:
         max_sensor_range: 4.0
         publish_elevation_grid: false  # local 은 디버그 발행 생략 (global 에서 확인)
         clear_on_reset: true
+        # 정답 높이맵 파일 경로. 비어 있으면 센서만으로 동작한다.
+        # 런치가 use_prior_map:=true 일 때 RewrittenYaml 로 채워 넣으므로
+        # 이 키가 없으면 치환이 일어나지 않는다 (RewrittenYaml 은 '있는 키'만 바꾼다).
+        prior_map: ""
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0      # 높을수록 lethal 근처만 고비용
@@ -479,6 +483,10 @@ global_costmap:
         max_sensor_range: 4.0
         publish_elevation_grid: true   # RViz 확인용
         clear_on_reset: true
+        # 정답 높이맵 파일 경로. 비어 있으면 센서만으로 동작한다.
+        # 런치가 use_prior_map:=true 일 때 RewrittenYaml 로 채워 넣으므로
+        # 이 키가 없으면 치환이 일어나지 않는다 (RewrittenYaml 은 '있는 키'만 바꾼다).
+        prior_map: ""
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"

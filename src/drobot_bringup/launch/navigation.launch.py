@@ -20,6 +20,7 @@ from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 from ros_gz_bridge.actions import RosGzBridge
+from nav2_common.launch import RewrittenYaml
 
 
 def with_render_engine(world_file, engine):
@@ -180,6 +181,44 @@ def launch_setup(context):
             bringup_pkg, 'config', 'navigation', 'nav2_params.yaml')
     print(f"[INFO] planner={planner} energy={energy} "
           f"-> {os.path.basename(nav2_params)}")
+
+    # ========== 정답 높이맵 (prior_map) ==========
+    # 센서는 표면만 본다. global_costmap 은 track_unknown_space: false 라
+    # 미관측을 자유공간으로 보므로, 플래너는 늘 '안 본 곳을 지나는 지상 경로'를
+    # 찾아낸다. 그래서 장애물 내부를 관통하는 경로가 나오고, 비행이 선택될
+    # 이유도 생기지 않는다.
+    #   실측 (2026-10-05): 높이 관측률 4.8%. 지상 통과가 물리적으로 불가능한
+    #   nogap 월드에서도 박스 영역의 100% 가 미관측이라 switch_points 가
+    #   항상 빈 배열이었다.
+    #
+    # 이 연구는 '맵이 주어진 조건에서의 에너지 인식 경로 계획'이지 탐색이
+    # 주제가 아니므로, 벤치마크 맵의 정답 높이맵을 ElevationLayer 에 심는다.
+    # 맵이 없는 월드에서는 빈 문자열이 되어 센서만으로 동작한다.
+    #
+    # 기본은 꺼둔다 (use_prior_map:=true 로 켠다).
+    use_prior_map = context.launch_configurations.get('use_prior_map', 'false')
+    prior_map = ''
+    if use_prior_map.lower() in ('true', '1', 'yes'):
+        prior_map_candidates = [os.path.join(desc_pkg, 'maps', f'{world}.heightmap')]
+        # 설치 전 소스 트리도 본다 (월드 파일을 찾는 방식과 같은 규칙).
+        for _ws in ws_candidates:
+            prior_map_candidates.append(
+                os.path.join(_ws, 'src', 'drobot_description', 'maps',
+                             f'{world}.heightmap'))
+        prior_map = next((p for p in prior_map_candidates if os.path.exists(p)), '')
+        if prior_map:
+            print(f"[INFO] prior_map -> {prior_map}")
+        else:
+            print(f"[INFO] prior_map 파일 없음 ({world}) — 센서만으로 동작")
+
+    # RewrittenYaml 은 '이미 있는 키'만 치환한다. params 파일의 두 elevation_layer
+    # 블록에 prior_map: "" 가 들어 있어야 여기서 채워진다.
+    nav2_params = RewrittenYaml(
+        source_file=nav2_params,
+        root_key='',
+        param_rewrites={'prior_map': prior_map},
+        convert_types=True,
+    )
     bt_xml = os.path.join(bringup_pkg, 'config', 'navigation', 'navigate_with_replanning.xml')
     slam_params = os.path.join(bringup_pkg, 'config', 'common', 'slam_params.yaml')
     ekf_params = os.path.join(bringup_pkg, 'config', 'common', 'ekf.yaml')
@@ -495,6 +534,15 @@ def generate_launch_description():
             description=(
                 'Gazebo 를 -v 4 로 띄워 디버그 로그를 sim.log 에 남긴다. '
                 '시뮬이 멈출 때 원인을 보려면 필요하다. 평소엔 로그가 길어져 꺼둔다.'
+            ),
+        ),
+        DeclareLaunchArgument(
+            'use_prior_map',
+            default_value='false',
+            description=(
+                '벤치마크 맵의 정답 높이맵을 ElevationLayer 에 미리 심는다. '
+                '미관측 영역이 자유공간으로 취급되어 플래너가 장애물 내부를 '
+                '관통하는 문제를 막는다. 해당 .heightmap 이 없으면 무시된다.'
             ),
         ),
         DeclareLaunchArgument(

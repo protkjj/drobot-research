@@ -305,7 +305,18 @@ local_costmap:
           # 즉 코너 교착은 이 값과 무관하다 (200/253/254 모두에서 발생).
           # 다음 단계: FollowPath 에 publish_evaluation 을 켜고 /evaluation 에서
           # 어떤 critic 이 궤적을 떨어뜨리는지 직접 본다.
-          fly_over: 200
+          # 로컬만 254 다. 글로벌은 200 으로 둔다 — 비대칭이 의도다. 2026-10-05
+          #
+          # 글로벌 200: 플래너가 collides()=false, roverTraversable()=false 로
+          #   읽어 AIR 모드를 고를 수 있다. 254 면 AIR 가 탐색에서 배제되어
+          #   전환점이 영원히 생기지 않는다.
+          # 로컬 254: DWB 는 모드 개념이 없어 200 을 '조금 비싼 바닥'으로 읽고
+          #   밟는다 (실측: 높이 0.564 m 칸에 올라타 전복). 254 면 멈춘다.
+          #
+          # 그 '멈추는 자리'가 곧 이륙 지점이므로 이 조합에서는 교착이 아니라
+          # 의도된 동작이다. mode_switch_executor 가 거기서 변신을 실행한다.
+          # 비행 제어가 붙으면 그 다음 구간을 넘겨받는다.
+          fly_over: 254
           impassable: 254
         use_pointcloud: true
         use_laserscan: true
@@ -316,6 +327,10 @@ local_costmap:
         max_sensor_range: 4.0
         publish_elevation_grid: false  # local 은 디버그 발행 생략 (global 에서 확인)
         clear_on_reset: true
+        # 정답 높이맵 파일 경로. 비어 있으면 센서만으로 동작한다.
+        # 런치가 use_prior_map:=true 일 때 RewrittenYaml 로 채워 넣으므로
+        # 이 키가 없으면 치환이 일어나지 않는다 (RewrittenYaml 은 '있는 키'만 바꾼다).
+        prior_map: ""
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0      # 높을수록 lethal 근처만 고비용
@@ -479,6 +494,10 @@ global_costmap:
         max_sensor_range: 4.0
         publish_elevation_grid: true   # RViz 확인용
         clear_on_reset: true
+        # 정답 높이맵 파일 경로. 비어 있으면 센서만으로 동작한다.
+        # 런치가 use_prior_map:=true 일 때 RewrittenYaml 로 채워 넣으므로
+        # 이 키가 없으면 치환이 일어나지 않는다 (RewrittenYaml 은 '있는 키'만 바꾼다).
+        prior_map: ""
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
