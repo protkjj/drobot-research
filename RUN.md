@@ -170,6 +170,16 @@ mode_manager 가 한 것이다. 둘이 어긋나면 그 자체가 결과다.
 을 ElevationLayer 에 미리 심는다. 센서는 그 위에 덧씌우므로 동적 장애물 대응은
 그대로다. 맵 파일이 없는 월드에서는 무시되고 센서만으로 동작한다.
 
+맵 파일은 월드 SDF 에서 만든다 (2026-11-20 부터 저장소에 도구가 있다):
+
+```bash
+python3 tools/sdf_to_heightmap.py           # 모든 월드 (base_map 8 + 벤치마크 6) → maps/
+python3 tools/sdf_to_heightmap.py --check   # 월드와 같은지만 (colcon test 도 test_prior_maps.py 로 검사)
+```
+
+월드를 고치면 다시 만들 것. 예전 nogap·narrow 맵은 상자가 벽을 덮어써 벽에 0.5 m
+구멍이 있었다.
+
 ### 터미널 1 — 시뮬 + Nav2
 
 ```bash

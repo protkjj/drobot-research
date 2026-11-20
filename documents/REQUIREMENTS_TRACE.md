@@ -174,6 +174,9 @@
 | P-D1 | URDF·meshes·worlds·rviz | ✅ | nogap·narrow 월드 추가 (10/5) |
 | P-D2 | CMake install | 🟡 | `maps/` 가 설치 목록에 없었다 (수정이 stash 에만 있었다). 2026-11-20 에 커밋했다. 깨끗한 클론에서 재확인 필요 (AC-10) |
 | P-D3 | (비행에 필요) 프로펠러 링크·추력 플러그인 | ⬜ | 링크 16 개에 rotor/prop 없음 |
+| P-D4 | (2026-11-20) prior map | ✅ | `tools/sdf_to_heightmap.py` 로 월드 SDF 에서 만든다 (충돌 상자 윗면, 겹치면 최댓값). 예전 생성 도구는 커밋된 적이 없었다. 다시 만들면서 찾은 것: ① nogap·narrow — 상자가 벽을 덮어써 벽 240·120 칸이 0.5 m 였다 (prior 칸이라 LiDAR 254 도 200 으로 내려갔다) ② base_map 6 종 — `.npz` 에서 만들어 SDF 보다 위쪽 벽이 한 줄 두꺼웠다 ③ 벤치마크 월드 6 종은 prior map 이 아예 없어 `use_prior_map:=true` 여도 센서만으로 돌았다. 14 개 전부 다시 만들었고 `test_prior_maps.py` 가 월드와 같은지 검사한다 |
+| P-D5 | 오프라인 벤치마크 격자 ↔ Gazebo 월드 | 🟡 | 장애물 높이는 14 개 월드 전부 칸 단위로 같다. 벽만 오프라인 쪽이 한 칸(5 cm) 두껍다 (맵마다 116~1,492 칸, 전부 3.0 m vs 0 m). 오프라인 통로가 Gazebo 보다 5 cm 좁다 — AC-4 비교 때 감안할 것 |
+| P-D6 | 표시 원판 | ✅ | nogap·narrow 만 4 cm 로 남아 있던 것을 2 mm 로 (팀원 0e7fa88 과 같게) |
 
 ### drobot_bringup (공동·B)
 
