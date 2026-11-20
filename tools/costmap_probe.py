@@ -126,7 +126,9 @@ def main():
     ap.add_argument("--timeout", type=float, default=10.0)
     ap.add_argument("--mode", choices=["cost", "elevation"], default="cost",
                     help="cost: costmap_raw 등급 / elevation: elevation_grid 의 높이")
-    ap.add_argument("--fly-over-max", type=float, default=1.2,
+    # 2026-11-20 에 1.2 -> 1.55 (천장 판정을 플래너 모델로 통일). 레이어가 이 값으로
+    # 높이를 0~100 에 눌러 담으므로 다르면 높이를 그 비율만큼 틀리게 읽는다.
+    ap.add_argument("--fly-over-max", type=float, default=1.55,
                     help="elevation 모드의 스케일 상한 (nav2_params 의 fly_over_max)")
     a = ap.parse_args()
 

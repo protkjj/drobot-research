@@ -245,7 +245,8 @@ RViz 의 **Nav2 Goal** 로 박스 반대편(예: x 2.0, y 10.0)을 찍는다.
 ros2 topic echo /mode_switch_points --once --full-length
 ```
 
-정상이면 전환점 2 개가 나온다 (`base_map_h0.5_nogap`, `energy:=derived` 실측):
+정상이면 전환점 2 개가 나온다. 아래는 **2026-10-05 실측**이다 — 11-20 변경 뒤의 기대값은
+**3-C 절**에 있다 (prior map 벽 구멍 수정·경로 여유·높이 레이어로 좌표가 바뀌었다):
 
 ```
 switch_points:
@@ -256,7 +257,8 @@ switch_points:
 total_flight_energy: 4.69
 ```
 
-터미널 3 에는 이렇게 뜬다:
+터미널 3 (mode_manager) 에 뜨는 로그는 3-C 절의 9 번 항목을 볼 것. 아래는 10-05 에
+mode_switch_executor 로 돌렸을 때의 기록이다:
 
 ```
 새 전환 계획: 전환점 2 개, 예상 비행 에너지 4.691 Wh
@@ -316,6 +318,84 @@ ros2 topic pub --qos-durability transient_local --qos-reliability reliable -r 1 
 ```bash
 pkill -f gz-sim; pkill -f ruby; pkill -f rviz2; pkill -f ros2
 ```
+
+## 3-C. 2026-11-20 변경 확인 (푸시 전에 한 번)
+
+11-20 에 바꾼 것을 시뮬 한 번으로 확인한다. 절차는 3-B 와 같고, 로그를 파일로 남긴다.
+바뀐 것 전체는 `documents/REQUIREMENTS_TRACE.md` 를 볼 것.
+
+### 준비
+
+```bash
+cd ~/drobot-research
+colcon build --symlink-install --packages-select drobot_msgs drobot_costmap_2_5d \
+  drobot_hybrid_planner drobot_description drobot_bringup drobot_controller drobot_mode_manager
+source install/setup.bash
+python3 tools/sdf_to_heightmap.py --check      # prior map 이 월드와 같은지 — 전부 '같음'
+mkdir -p dumps/1120
+```
+
+### 터미널 1~3 — 3-B 와 같다, 로그만 남긴다
+
+```bash
+# 1. 시뮬 + Nav2
+ros2 launch drobot_bringup navigation.launch.py \
+  world:=base_map_h0.5_nogap planner:=proposed energy:=derived \
+  robot_model:=mesh use_prior_map:=true 2>&1 | tee dumps/1120/launch.log
+```
+
+```bash
+# 2. 변신 서비스
+source ~/drobot-research/install/setup.bash
+ros2 run drobot_controller transform_manager 2>&1 | tee dumps/1120/transform.log
+```
+
+```bash
+# 3. 모드 관리자 (변신 + 비행 구간)
+source ~/drobot-research/install/setup.bash
+ros2 run drobot_mode_manager mode_manager --ros-args \
+  --params-file ~/drobot-research/src/drobot_mode_manager/config/mode_switch_params.yaml \
+  -p use_sim_time:=true -p world:=base_map_h0.5_nogap 2>&1 | tee dumps/1120/mode_manager.log
+```
+
+### 터미널 4 — 목표를 보내기 **전에** (로봇이 출발점에 서 있을 때)
+
+```bash
+source ~/drobot-research/install/setup.bash
+# 바닥 높이 원인 — 몸체 기울기인지
+python3 tools/floor_bias_probe.py --world base_map_h0.5_nogap --frames 20 | tee dumps/1120/floor.txt
+# 벽 구멍이 메워졌나 — 왼쪽 벽 x 0.05 를 따라 (상자 y 4~7 구간 포함)
+python3 tools/costmap_probe.py --x0 0.05 --y0 3.5 --x1 0.05 --y1 7.5 | tee dumps/1120/wall.txt
+# 높이 격자 — 상자 가운데를 따라
+python3 tools/costmap_probe.py --mode elevation --x0 2.0 --y0 3.0 --x1 2.0 --y1 8.0 | tee dumps/1120/height.txt
+ros2 node list | grep mode_manager
+```
+
+그다음 RViz **Nav2 Goal** 로 (2.0, 10.0) 을 찍고, 끝나면:
+
+```bash
+ros2 topic echo /mode_switch_points --once --full-length > dumps/1120/sw.txt
+grep -E "ElevationHeightLayer|비행 고도|prior_map 적용|레이어가 없다|천장 제약상|경로 생성|비행=" dumps/1120/launch.log | head -20
+```
+
+### 확인할 것
+
+| # | 무엇 | 어디서 | 정상 |
+|---|---|---|---|
+| 1 | 높이 레이어 | launch.log | `ElevationHeightLayer 'elevation_height'` 와 `비행 고도: 레이어 'elevation_height' 의 실제 높이` 가 있고, `레이어가 없다` 경고가 **없다** |
+| 2 | 천장 모델 | launch.log | `fly_over_max(…)가 천장 제약상 …` 경고가 **없다** (1.55 = 2.5 − 0.5 − 0.25 − 0.2) |
+| 3 | 미관측 비행 금지 | launch.log | 플래너 시작 줄에 `비행=관측 칸 위만` |
+| 4 | prior map | launch.log | `prior_map 적용: …base_map_h0.5_nogap.heightmap` 가 두 번 (local·global). local 은 출발점 주변만 심긴다 — 정상 |
+| 5 | 벽 구멍 | wall.txt | x 0.05 의 y 4~7 구간이 전부 254 (예전 prior map 은 이 구간을 0.5 m 로 적어 200 이 됐다) |
+| 6 | 높이 격자 | height.txt | 상자 구간(y 4~7) 0.50 m, 바닥 0 근처 |
+| 7 | 전환점 | sw.txt | 2 개, 고도 0.80 m. 참고값 — Gazebo 없이 planner_server 만 띄운 실측(높이 레이어 커밋 시점, 천장 모델·prior map 수정 전): 이륙 (2.03, 3.03) → 착륙 (2.03, 7.98). 그 뒤 수정과 센서로 조금 달라질 수 있다 |
+| 8 | 노드 이름 | `ros2 node list` | `/mode_manager` (예전 `/drobot_mode_manager` 는 yaml 이 적용되지 않았다) |
+| 9 | 변신 순서 | mode_manager.log | `계획 수신 — 전환점 2개` → `[1/2] 이륙점 도달` → `드론 변신 요청` → `구간 순서: to_drone → fly → to_rover` → `비행 완료 → FLYING` → `[2/2] 착륙점 도달` → `→ GROUND`. 시뮬에서는 `이륙 전 변신 실패 — … timeout` · `착륙 후 로버 복귀 실패` 경고가 **정상**이다 (암 잔차) |
+| 10 | 전복 | Gazebo 화면 | 상자에 올라타지 않는다 (지역 fly_over 254) |
+| 11 | 도착 | launch.log / RViz | 목표 30 cm 안에서 succeeded |
+| 12 | 바닥 기울기 | floor.txt | `roll` 이 +1.36° 근처, `높이 어긋남` 이 1 cm 이내면 기울기가 원인 (그러면 URDF 좌우 바퀴 높이를 맞춘다) |
+
+`dumps/1120/` 을 통째로 넘겨주면 나머지는 거기서 확인한다.
 
 ---
 
