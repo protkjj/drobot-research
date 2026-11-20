@@ -409,10 +409,18 @@ void ProblemSpec::buildAirLevels()
   }
 }
 
+bool ProblemSpec::airObservedOk(unsigned int mx, unsigned int my) const
+{
+  return !params_.fly_only_over_observed || terrain_->observed(mx, my);
+}
+
 bool ProblemSpec::airOkAt(unsigned int mx, unsigned int my, uint8_t level) const
 {
   if (!inBounds(mx, my)) {return false;}
   if (level >= air_levels_.size()) {return false;}
+  // 미관측 칸은 높이 0(평지)으로 읽혀, 그 위로 가장 낮은 고도가 나왔다.
+  // 실제로는 못 본 장애물이 있을 수 있다 — 높이를 모르면 날지 않는다.
+  if (!airObservedOk(mx, my)) {return false;}
   const double z = air_levels_[level];
   const double h = terrain(mx, my);
   return z >= h + model_->minFlightClearance() - 1e-9 && z <= z_max_ + 1e-9;

@@ -260,6 +260,10 @@ public:
     /// 착륙은 센서가 본 셀에만 (TerrainSource::observed).
     /// 카메라가 못 본 장애물 윗면이 평지로 보여 그 위에 착륙하던 것을 막는다.
     bool land_only_on_observed = true;
+    /// 카메라가 본 칸 위로만 난다 (2026-11-20). 미관측 칸은 높이를 모르므로 그 위를
+    /// 날 고도를 정할 수 없다. 지상은 여전히 낙관이라 로봇은 가 보고, 센서가 보면
+    /// 재계획에서 비행 구간이 생긴다.
+    bool fly_only_over_observed = true;
     /// 비행 한 구간 최대 수평 거리 (m). 0 이하면 제한 없음. SSOT max_flight_distance.
     double max_flight_distance = 0.0;
     double flight_distance_bin = 0.25;   ///< State::fbin 의 구간 폭 (m)
@@ -284,6 +288,8 @@ public:
   // ---- 상태 유효성 ---------------------------------------------------
   bool inBounds(unsigned int mx, unsigned int my) const;
   double terrain(unsigned int mx, unsigned int my) const;
+  /// 이 칸 위를 날아도 되나 — 관측 조건 (fly_only_over_observed). 고도 조건은 airOkAt.
+  bool airObservedOk(unsigned int mx, unsigned int my) const;
   bool groundOk(unsigned int mx, unsigned int my) const;
 
   /// (mx, my) 에서 radius_cells 안의 가장 가까운 groundOk 셀을 (ox, oy) 에 담는다.

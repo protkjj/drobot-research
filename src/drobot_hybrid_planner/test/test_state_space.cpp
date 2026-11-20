@@ -733,6 +733,28 @@ TEST_F(ClearanceTest, HybridStillCrossesByFlightWithClearance)
   EXPECT_TRUE(landed_across);
 }
 
+TEST_F(LayerTerrainTest, UnobservedIsNotFlownOver)
+{
+  // 벽 오른쪽은 미관측 — 높이 0(평지)으로 읽히지만 실제로는 못 본 장애물이 있을 수 있다.
+  // 비행은 본 칸 위로만 한다 (fly_only_over_observed). 지상은 여전히 낙관이라 가 볼 수 있다.
+  const unsigned int unseen = kWallX + 3;
+  const ProblemSpec spec = makeLayerSpec(Modal::Hybrid);
+  ASSERT_FALSE(layer_terrain_->observed(unseen, kMidY));
+  EXPECT_EQ(lowestUsableLevel(spec, unseen, kMidY), -1) << "못 본 칸 위로는 날지 않는다";
+  EXPECT_GE(lowestUsableLevel(spec, 1, kMidY), 0) << "본 평지 위로는 난다";
+  EXPECT_GE(lowestUsableLevel(spec, kWallX, kMidY), 0) << "본 장애물(fly_over) 위로도 난다";
+  EXPECT_TRUE(spec.groundOk(unseen, kMidY)) << "주행은 낙관 — 가 보면 보인다";
+
+  // 대조군 — 끄면 예전처럼 미관측을 평지로 보고 난다
+  ProblemSpec::Params p;
+  p.flight_clearance = 0.8;
+  p.ceiling_height = 2.5;
+  p.modal = Modal::Hybrid;
+  p.fly_only_over_observed = false;
+  const ProblemSpec old_spec(master_.get(), layer_terrain_, &model_, p);
+  EXPECT_GE(lowestUsableLevel(old_spec, unseen, kMidY), 0);
+}
+
 // ---------------------------------------------------------------------------
 // 실제 높이 격자 (ElevationHeightLayer) — 2026-11-20
 //

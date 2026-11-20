@@ -208,6 +208,7 @@ void HybridAStarPlanner::configure(
   tcfg.h_flyover = getD(node, p + "flyover_representative_height", 0.60);
   terrain_layer_ = getS(node, p + "terrain_layer", terrain_layer_);
   spec_params_.land_only_on_observed = getB(node, p + "land_only_on_observed", true);
+  spec_params_.fly_only_over_observed = getB(node, p + "fly_only_over_observed", true);
 
   nav2_costmap_2d::Costmap2D * grade = findLayerGrid(*costmap_ros, terrain_layer_);
   const bool same_size = grade != nullptr &&
@@ -274,13 +275,14 @@ void HybridAStarPlanner::configure(
     logger_,
     "HybridAStarPlanner '%s' 설정 완료: modal=%s, timeout=%.2fs, "
     "flight_clearance=%.2fm, z_max=%.2fm, 통과가능 h<=%.2fm, "
-    "로버 통과높이<=%.2fm, 비행 1구간<=%.2fm(%u구간), corner_check=%s, 지형=%s, 착륙=%s, "
+    "로버 통과높이<=%.2fm, 비행 1구간<=%.2fm(%u구간), corner_check=%s, 지형=%s, 착륙=%s, 비행=%s, "
     "여유>=%.2fm(비용 %.2f/m, %.1fm 까지)",
     name_.c_str(), modal_name_.c_str(), timeout_s_, spec_params_.flight_clearance,
     spec_->zMax(), spec_->hLimit(), spec_->roverHLimit(),
     spec_params_.max_flight_distance, spec_->numFlightBins(),
     spec_params_.check_diagonal_corners ? "on" : "off",
     terrain_desc.c_str(), spec_params_.land_only_on_observed ? "관측 칸만" : "어디든",
+    spec_params_.fly_only_over_observed ? "관측 칸 위만" : "어디든",
     spec_params_.min_ground_clearance, spec_params_.clearance_weight,
     spec_params_.clearance_range);
 
@@ -481,6 +483,7 @@ bool HybridAStarPlanner::segmentOk(const Waypoint & a, const Waypoint & b) const
     } else {
       const double z = a.z + (b.z - a.z) * t;
       const double h = spec_->terrain(mx, my);
+      if (!spec_->airObservedOk(mx, my)) {return false;}   // 스무딩 지름길도 같은 규칙
       if (z < h + energy_.minFlightClearance() - 1e-9) {return false;}
       if (z > spec_->zMax() + 1e-9) {return false;}
     }

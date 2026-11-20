@@ -30,7 +30,9 @@ assumptions:
   apply_altitude_cost_to_landing: true
 
   # ===== 3. 로봇 형상 (천장 제약 계산용) =====
-  # elevation_params.yaml: "장애물 높이 + 로봇 비행 고도 + 천장 여유(50cm) > ceiling_height → Impassable"
+  # z + robot.height + ceiling_margin <= ceiling (cost/energy.py max_flight_altitude).
+  # 2026-11-20 부터 elevation_layer 도 같은 모델로 판정한다:
+  #   장애물 + min_flight_clearance + robot.height + ceiling_margin > ceiling → Impassable (1.55 m)
   # 여기서 '로봇 높이'가 URDF에 명시적으로 없어 추정치를 쓴다.
   robot:
     height: 0.25                     # m — drobot 본체 높이 추정

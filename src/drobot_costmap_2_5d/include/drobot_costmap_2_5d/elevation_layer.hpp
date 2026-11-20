@@ -224,7 +224,10 @@ private:
   unsigned char cost_impassable_ = 254;
 
   // 로봇 형상 (Impassable 판정용)
-  double robot_flight_height_ = 0.8;
+  /// 비행 중 로봇 몸체 높이 (플래너 energy_model.robot.height 와 같은 값)
+  double robot_height_ = 0.25;
+  /// 장애물 윗면과 로봇 바닥 사이 최소 여유 (플래너 energy_model.min_flight_clearance)
+  double min_flight_clearance_ = 0.2;
   double ceiling_clearance_ = 0.5;
 
   // 센서

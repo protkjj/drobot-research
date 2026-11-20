@@ -250,14 +250,15 @@ local_costmap:
         enabled: true
         height_thresholds:
           rover_traversable_max: 0.15
-          fly_over_max: 1.2
+          fly_over_max: 1.55           # 천장 2.5 - 여유 0.5 - 로봇 0.25 - 최소 비행 여유 0.2 (플래너와 같은 모델)
           # LiDAR 도 맞은 칸을 flyover 로 내릴 때 요구하는 카메라 측정 상한.
           # 전방 카메라는 가까운 큰 물체의 윗부분이 수직 FOV 를 벗어나 실제보다
           # 낮게 측정된다. LiDAR 가 단단한 반사를 준 칸에서 측정 높이가 이 값을
           # 넘으면 과소추정으로 보고 flyover 로 내리지 않는다 (벽 보호).
           confident_flyover_max: 0.6
         ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
-        robot_flight_height: 0.8       # ← SSOT: robot_physical.yaml (flight_clearance)
+        robot_height: 0.25             # ← SSOT: robot_physical.yaml (플래너 energy_model.robot.height)
+        min_flight_clearance: 0.2      # ← SSOT: robot_physical.yaml (플래너 energy_model.min_flight_clearance)
         min_ceiling_clearance: 0.5     # ← SSOT: robot_physical.yaml
         traversability:
           max_slope_angle: 15.0
@@ -428,14 +429,15 @@ global_costmap:
         enabled: true
         height_thresholds:
           rover_traversable_max: 0.15
-          fly_over_max: 1.2            # 천장 제약상 실제 통과 가능 높이에 맞춤
+          fly_over_max: 1.55           # 천장 2.5 - 여유 0.5 - 로봇 0.25 - 최소 비행 여유 0.2 (플래너와 같은 모델)
           # LiDAR 도 맞은 칸을 flyover 로 내릴 때 요구하는 카메라 측정 상한.
           # 전방 카메라는 가까운 큰 물체의 윗부분이 수직 FOV 를 벗어나 실제보다
           # 낮게 측정된다. LiDAR 가 단단한 반사를 준 칸에서 측정 높이가 이 값을
           # 넘으면 과소추정으로 보고 flyover 로 내리지 않는다 (벽 보호).
           confident_flyover_max: 0.6
         ceiling_height: 2.5            # ← SSOT: robot_physical.yaml
-        robot_flight_height: 0.8       # ← SSOT: robot_physical.yaml (flight_clearance)
+        robot_height: 0.25             # ← SSOT: robot_physical.yaml (플래너 energy_model.robot.height)
+        min_flight_clearance: 0.2      # ← SSOT: robot_physical.yaml (플래너 energy_model.min_flight_clearance)
         min_ceiling_clearance: 0.5     # ← SSOT: robot_physical.yaml
         traversability:
           max_slope_angle: 15.0
@@ -571,6 +573,7 @@ planner_server:
       # 높이가 1 cm 단위로 많아 비행 고도 후보를 이 간격으로 올림해 묶는다 (상태공간 크기).
       air_level_step: 0.10
       land_only_on_observed: true      # 착륙은 카메라가 본 칸에만 (못 본 장애물 윗면 착륙 방지)
+      fly_only_over_observed: true     # 비행도 본 칸 위로만. 못 본 곳은 지상으로 가서 센서로 본다 (2026-11-20)
       # 경로 여유 — 이 modal 의 로버가 설 수 없는 칸까지의 거리로 판정한다 (state_space.hpp).
       # 밟고넘기에서는 0.7 m 이하 장애물이 '설 수 있는 곳' 이라 여유를 두지 않는다.
       min_ground_clearance: 0.30       # m — 이보다 가까운 칸은 주행·착륙 불가 (footprint 0.45 m: 내접 0.225 ~ 외접 0.318)

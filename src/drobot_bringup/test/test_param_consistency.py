@@ -54,6 +54,7 @@ ENERGY_FILES = {
 ELEVATION_FILE = ROOT / 'src/drobot_costmap_2_5d/config/elevation_params.yaml'
 PHYSICAL_FILE = ROOT / 'src/drobot_description/config/robot_physical.yaml'
 MODE_SWITCH_FILE = ROOT / 'src/drobot_mode_manager/config/mode_switch_params.yaml'
+BENCH_ASSUMPTIONS = ROOT / 'benchmark/config/benchmark_assumptions.yaml'
 
 COSTMAPS = ('local_costmap', 'global_costmap')
 
@@ -160,10 +161,22 @@ def test_ssot_constants():
                   phys['max_flight_distance']))
     found.append(('mode_switch_params min_ceiling_clearance', mm['min_ceiling_clearance'],
                   phys['min_ceiling_clearance']))
+    bench = _load(BENCH_ASSUMPTIONS)['assumptions']
+    found.append(('benchmark robot.height', bench['robot']['height'], phys['robot_height']))
+    found.append(('benchmark robot.ceiling_margin', bench['robot']['ceiling_margin'],
+                  phys['min_ceiling_clearance']))
+    found.append(('benchmark min_flight_clearance', bench['min_flight_clearance'],
+                  phys['min_flight_clearance']))
     blocks = [('elevation_params.yaml', elev_pkg)]
     for name, path in NAV2_FILES.items():
         nav2 = _load(path)
         grid = nav2['planner_server']['ros__parameters']['GridBased']
+        em = nav2['planner_server']['ros__parameters']['energy_model']
+        found.append((f'{name} planner robot.height', em['robot']['height'], phys['robot_height']))
+        found.append((f'{name} planner robot.ceiling_margin', em['robot']['ceiling_margin'],
+                      phys['min_ceiling_clearance']))
+        found.append((f'{name} planner min_flight_clearance', em['min_flight_clearance'],
+                      phys['min_flight_clearance']))
         found.append((f'{name} planner flight_clearance', grid['flight_clearance'],
                       phys['flight_clearance']))
         found.append((f'{name} planner max_flight_segment', grid['max_flight_segment'],
@@ -173,13 +186,16 @@ def test_ssot_constants():
         for cm in COSTMAPS:
             blocks.append((f'{name} {cm}', _elevation_block(nav2, cm)))
     for where, b in blocks:
-        found.append((f'{where} robot_flight_height', b['robot_flight_height'],
-                      phys['flight_clearance']))
+        found.append((f'{where} robot_height', b['robot_height'], phys['robot_height']))
+        found.append((f'{where} min_flight_clearance', b['min_flight_clearance'],
+                      phys['min_flight_clearance']))
         found.append((f'{where} min_ceiling_clearance', b['min_ceiling_clearance'],
                       phys['min_ceiling_clearance']))
         found.append((f'{where} ceiling_height', b['ceiling_height'], phys['ceiling_height']))
-        # fly_over_max 는 천장 제약에서 유도한 값이다: 천장 - 비행고도 - 천장 여유
-        derived = phys['ceiling_height'] - phys['flight_clearance'] - phys['min_ceiling_clearance']
+        # fly_over_max 는 천장 제약에서 유도한 값이다 — 플래너·벤치마크와 같은 모델:
+        #   천장 - 천장 여유 - 로봇 높이 - 최소 비행 여유
+        derived = (phys['ceiling_height'] - phys['min_ceiling_clearance']
+                   - phys['robot_height'] - phys['min_flight_clearance'])
         found.append((f'{where} fly_over_max', b['height_thresholds']['fly_over_max'],
                       pytest.approx(derived)))
 

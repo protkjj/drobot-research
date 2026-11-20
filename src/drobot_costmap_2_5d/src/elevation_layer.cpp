@@ -84,7 +84,8 @@ void ElevationLayer::onInitialize()
     static_cast<unsigned char>(getParam(node, p + "cost_values.impassable", 254));
 
   // 로봇 형상
-  robot_flight_height_ = getParam(node, p + "robot_flight_height", robot_flight_height_);
+  robot_height_ = getParam(node, p + "robot_height", robot_height_);
+  min_flight_clearance_ = getParam(node, p + "min_flight_clearance", min_flight_clearance_);
   ceiling_clearance_ = getParam(node, p + "min_ceiling_clearance", ceiling_clearance_);
 
   // 센서
@@ -149,7 +150,8 @@ void ElevationLayer::onInitialize()
       "생기지 않는다. 비행이 필요한 장애물을 구분하지 못한다.",
       rover_traversable_max_, fly_over_max_);
   }
-  const double max_flyable = ceiling_height_ - robot_flight_height_ - ceiling_clearance_;
+  const double max_flyable =
+    ceiling_height_ - ceiling_clearance_ - robot_height_ - min_flight_clearance_;
   if (fly_over_max_ > max_flyable) {
     RCLCPP_WARN(
       logger_,
@@ -640,8 +642,11 @@ unsigned char ElevationLayer::classify(unsigned int mx, unsigned int my) const
     };
 
   // 1) 천장 제약 — 넘어가려면 로봇이 그 위를 날아야 한다
-  //    장애물높이 + 비행고도 + 천장여유 > 천장  ->  통과 불가
-  if (h + robot_flight_height_ + ceiling_clearance_ > ceiling_height_) {
+  //    장애물높이 + 최소 비행 여유 + 로봇 높이 + 천장 여유 > 천장  ->  통과 불가
+  //    플래너(airOkAt, z_max)·오프라인 벤치마크와 같은 모델이다. 2026-11-20
+  //    예전에는 '장애물 + 0.8 + 0.5' 로 따로 계산해 1.2 m 에서 끊었는데, 플래너는
+  //    '장애물 + 0.2 <= 고도 <= 천장 - 로봇 0.25 - 여유 0.5' 로 1.55 m 까지 넘었다.
+  if (h + min_flight_clearance_ + robot_height_ + ceiling_clearance_ > ceiling_height_) {
     return cost_impassable_;
   }
   // 2) fly_over 상한 초과
