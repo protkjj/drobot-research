@@ -30,7 +30,7 @@
 | 플래너 (B) | ✅ | gtest 63 개 통과, nogap 에서 전환점 생성 |
 | 에너지 모델 | 🟡 | 코드는 됨. 계수는 실측 전 추정값 (두 세트) |
 | 컨트롤러 | 🔴 | 계획서는 **MPPI 확정**, 저장소는 처음부터 **DWB**. 사유 기록 없음. **MPPI 를 시도하기로 결정** (D-1) |
-| 파라미터 관리 | 🔴 | 런타임은 nav2_params 인라인 값만 읽는다. 패키지 config 와 이미 2 건 어긋남 |
+| 파라미터 관리 | 🟡 | 런타임은 nav2_params 인라인 값만 읽는다. 어긋난 2 건은 맞췄고, 다시 어긋나면 실패하는 테스트를 넣었다 (D-5 (c)) |
 | 모드 전환 실행 (C) | 🟡 | 운동학 재생(set_pose)으로 동작. 실제 비행 없음 |
 | 변신 모션 | 🟡 | 동작하나 목표 각도 미도달 |
 | 연구 결론 ("비행을 선택하는가") | ⬜ | narrow 월드 실험 미실시 |
@@ -44,7 +44,7 @@
 | S-1 | ① 인터페이스 계약 4 개 | 2 절 참조 | 🟡 | A→B·B→C·C→B 는 형식 일치. A→전원(TF) 위반 |
 | S-2 | ② 토픽·QoS 표 | 2 절 참조 | ✅ | 규약 토픽 전부 존재 |
 | S-3 | ③ TF 트리 `map→odom→base_link→센서` | `base_link` 대신 `base_footprint` | 🟡 | `ekf.yaml` `base_link_frame: base_footprint`, `slam_params.yaml` `base_frame: base_footprint`. **규약을 `base_footprint` 로 개정하기로 결정** — 규약 PDF 갱신 필요 ([D-4](#5-결정-필요)) |
-| S-4 | ④ 파라미터 흐름 규칙 — "nav2_params 에는 플러그인 **이름만**, 세부 값은 각 패키지 config 에서 참조" | 세부 값 전부 nav2_params 에 인라인. launch 는 패키지 config 를 하나도 읽지 않는다 | 🔴 | 같은 값이 여러 곳에 손으로 복사돼 있다 — 패키지 config(벤치마크·test_maps.py 가 읽는다), nav2_params 2 개, 그리고 각 파일 안의 local·global 블록. elevation 파라미터는 5 벌이다. 이미 2 건 어긋남 — `fly_over_max` 2.0 vs 1.2, 지역 `fly_over` 200 vs 254. 결정 [D-5](#5-결정-필요) |
+| S-4 | ④ 파라미터 흐름 규칙 — "nav2_params 에는 플러그인 **이름만**, 세부 값은 각 패키지 config 에서 참조" | 세부 값 전부 nav2_params 에 인라인. launch 는 패키지 config 를 하나도 읽지 않는다 | 🟡 | 같은 값이 여러 곳에 손으로 복사돼 있다 — 패키지 config(벤치마크·test_maps.py 가 읽는다), nav2_params 2 개, 그리고 각 파일 안의 local·global 블록. elevation 파라미터는 5 벌이다. 어긋났던 2 건(`fly_over_max` 2.0 vs 1.2, 지역 `fly_over` 200 vs 254)은 2026-11-20 에 맞췄고 `drobot_bringup/test/test_param_consistency.py` 가 지킨다. 원천 일원화는 [D-5](#5-결정-필요) |
 | S-5 | ⑤ SSOT — 공유 상수를 `robot_physical.yaml` 한 곳에 | 파일은 있다 (`drobot_description/config/robot_physical.yaml`) | 🟡 | **그 파일을 읽는 코드가 없다.** 다른 파일은 `← SSOT` 주석만 달고 값을 복사해 쓴다. 현재 값은 일치 |
 | S-6 | ⑥-1 컨트롤러 DWB vs MPPI — "계획서 = MPPI 확정" | `RotationShimController` + `DWBLocalPlanner` | 🔴 | 첫 시뮬 자산 커밋(`29ee27a`)부터 DWB. MPPI 는 구현된 적이 없고 바꾼 사유도 없다. 전복·코너 교착이 전부 DWB 에서 나왔다. 설정 주석의 "MPPI 가 …" 는 2026-11-20 에 실제(DWB) 로 고쳤다. **MPPI 를 시도하기로 결정** ([D-1](#5-결정-필요)) |
 | S-7 | ⑥-2 elevation_layer 를 local 에도 | 넣었다 | ✅ | `updateOrigin()` 구현 후 복귀 (`94c0e41`) |
@@ -92,7 +92,7 @@
 | C-2 | A→B 레이어 이름 `elevation_layer`, 플러그인 `drobot_costmap_2_5d::ElevationLayer` | ✅ | 플래너가 `terrain_layer: "elevation_layer"` 로 읽는다 |
 | C-3 | A→B **global·local 둘 다** | ✅ | 10/5 이전에는 local 에서 빠져 있어 위반 상태였다 |
 | C-4 | A→B — `NO_INFORMATION`(255) 의 의미 | 🔴 **사양에 없음** | 플래너가 "주행 가능" 으로 낙관한다. 높이 관측률 4.8 % 에서 전환점이 영원히 안 생긴 원인. 지금은 prior map 으로 우회. [D-3](#5-결정-필요) |
-| C-5 | A→B — 지역 지도의 `fly_over` 값 | 🔴 **사양에 없음** | default 파일 200, derived 파일 254. 에너지 세트를 바꾸면 지역 지도까지 같이 바뀐다. [D-2](#5-결정-필요) |
+| C-5 | A→B — 지역 지도의 `fly_over` 값 | 🟡 **사양에 없음** | default 200 / derived 254 로 갈라져 있던 것을 2026-11-20 두 파일 모두 254 로 맞췄다. 값 자체는 [D-2](#5-결정-필요) 보류 |
 | C-6 | B→C ModeSwitchPlan 발행, pair_id 짝 | ✅ | nogap 에서 이륙·착륙 1 쌍 (2026-10-05) |
 | C-7 | C→B 에너지 yaml 스키마 (ground_mode, air_mode, climb_mode, mode_switch, idle_power) | ✅ | 키 일치. 값은 실측 전 (E-2) |
 | C-8 | A→전원 TF·프레임 이름 | 🟡 | T-2 와 같음 — 규약 개정으로 해소 |
@@ -213,7 +213,7 @@
 | ID | 기준 | 방법 | 현재 |
 |---|---|---|---|
 | AC-1 | prior map 에서 코스트맵 지형 등급이 정답 높이맵 등급과 칸 단위 일치율 ≥ `__` % | `/global_costmap/elevation_layer_raw` 덤프 ↔ 정답 높이맵에 같은 `classify()` 규칙 적용 | ⬜ 미측정 |
-| AC-2 | base_map_h0.5 에서 박스에 올라타지 않음 (전복 0 회 / `__` 회) | 주행 + bag | 🔴 default(지역 200): 전복 실측. derived(지역 254): 통과 (10/5) |
+| AC-2 | base_map_h0.5 에서 박스에 올라타지 않음 (전복 0 회 / `__` 회) | 주행 + bag | 🟡 지역 200 에서 전복 실측, 254 에서 통과 (10/5). 2026-11-20 부터 두 파일 모두 254 — 재확인 필요 |
 | AC-3 | nogap 에서 전환점 1 쌍 생성, 이륙점 반경 안에서 변신 호출 | 런치 로그 + `/mode_switch_points` | ✅ derived + prior map (10/5) |
 | AC-4 | narrow 에서 에너지 세트별 비행 선택 여부가 오프라인 벤치마크와 같다 | 계획만 (주행 완주 불필요) | ⬜ |
 | AC-5 | 도착 오차 ≤ 0.30 m | record_run | 🟡 팀원 10/2 측정. 병합 후 재측정 안 함 |
@@ -233,10 +233,10 @@
 | ID | 무엇을 | 상태 | 내용 |
 |---|---|---|---|
 | D-1 | 컨트롤러 | **결정됨 (2026-11-20)** | **MPPI 를 시도한다.** `nav2_mppi_controller` 는 ROS Jazzy 에 이미 설치돼 있다(로컬 확인, 데탑 컨테이너는 미확인) — 새로 짜는 것이 아니라 설정·critic 튜닝 작업이다. DWB 와 같은 월드에서 전복(AC-2)·코너(AC-7)를 비교한다 |
-| D-2 | 지역 `fly_over` 값 | **보류** | **필수는 두 파일을 같게 만드는 것이다** — 지금은 default 200, derived 254 라 에너지 세트를 바꾸면 지역 지도까지 바뀐다. 값은 논의 중: (a) 254 — 지역 지도는 지상 컨트롤러만 읽으므로 지금 잃는 정보가 없다 (b) 200 유지 — 의미를 지도에 남기고 컨트롤러가 모드에 따라 해석. 단 DWB 는 200 을 '조금 비싼 바닥' 으로만 읽어 밟는다 (전복 실측). D-1(MPPI) 결과를 보고 정해도 된다 |
+| D-2 | 지역 `fly_over` 값 | **보류 (임시 254)** | 2026-11-20 두 파일 모두 254 로 맞췄다 (DWB 를 쓰는 동안의 임시값). 값은 논의 중: (a) 254 — 지역 지도는 지상 컨트롤러만 읽으므로 지금 잃는 정보가 없다 (b) 200 유지 — 의미를 지도에 남기고 컨트롤러가 모드에 따라 해석. 단 DWB 는 200 을 '조금 비싼 바닥' 으로만 읽어 밟는다 (전복 실측). D-1(MPPI) 결과를 보고 정해도 된다 |
 | D-3 | `NO_INFORMATION` 해석 | 미결 | 권장: 지상 통과는 낙관, 비행 선택("날아 넘을 수 있다") 은 비관. prior map 은 우회일 뿐이다 |
 | D-4 | 프레임 이름 | **결정됨 (2026-11-20)** | **규약을 `base_footprint` 로 개정한다.** 모든 노드가 이미 `base_footprint` 를 쓰고 REP-120 에도 맞다. 할 일: 인터페이스 규약 PDF ①·③ 갱신, 매니페스트 ekf·slam 예시 갱신, `mode_switch_params.yaml` 의 "규약 정렬은 A 트랙 몫" 주석 정리 |
-| D-5 | 파라미터 원천 | 미결 | 아래 설명 |
+| D-5 | 파라미터 원천 | **(c) 적용 (2026-11-20)** | 일치 테스트를 넣었다. (a)/(b) 는 MPPI 작업 뒤에 정한다. 아래 설명 |
 | D-6 | 전환점 도달 판정 주체 | 미결 | 아래 설명 |
 | D-7 | 수용 기준의 `__` 값 | 미결 | 팀 |
 | D-8 | SLAM loop closure 끔, 레이저 범위 12 m | 미결 | 사유 확인 |

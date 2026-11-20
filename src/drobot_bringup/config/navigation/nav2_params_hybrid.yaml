@@ -284,7 +284,13 @@ local_costmap:
           # '넘어갈 수 있음'과 '막혔음'을 구분할 실익이 없다 — 바퀴로는 둘 다
           # 못 간다. 비행이 동작하면 되돌리고, 모드에 따라 로컬 코스트맵을
           # 바꾸는 쪽으로 가야 한다.
-          # 설계값 200 이다. 2026-10-05 에 254 / 253 을 시도했다가 되돌렸다.
+          # 이력: 2026-10-05 에 254 / 253 을 시도했다가 200 으로 되돌렸고, 같은 날
+          # 이 파일(derived)만 254 로 다시 올렸다. 그래서 default 는 200, derived 는
+          # 254 로 갈라져 있었다 — 에너지 세트를 바꾸면 지역 지도까지 바뀌던 것.
+          # 2026-11-20 두 파일 모두 254 로 맞췄다. 값 자체는 보류다: MPPI 로 바꾸면
+          # 지도는 200 으로 두고 CostCritic.near_collision_cost 로 피하게 할 수도 있다
+          # (documents/REQUIREMENTS_TRACE.md D-1, D-2). 두 파일의 이 값은 같아야 한다
+          # — drobot_bringup/test/test_param_consistency.py 가 검사한다.
           #
           # 200 의 의미 (state_space.cpp):
           #   collides() = false, roverTraversable() = false
@@ -312,7 +318,18 @@ local_costmap:
           # 즉 코너 교착은 이 값과 무관하다 (200/253/254 모두에서 발생).
           # 다음 단계: FollowPath 에 publish_evaluation 을 켜고 /evaluation 에서
           # 어떤 critic 이 궤적을 떨어뜨리는지 직접 본다.
-          fly_over: 200
+          # 로컬만 254 다. 글로벌은 200 으로 둔다 — 비대칭이 의도다. 2026-10-05
+          #
+          # 글로벌 200: 플래너가 collides()=false, roverTraversable()=false 로
+          #   읽어 AIR 모드를 고를 수 있다. 254 면 AIR 가 탐색에서 배제되어
+          #   전환점이 영원히 생기지 않는다.
+          # 로컬 254: DWB 는 모드 개념이 없어 200 을 '조금 비싼 바닥'으로 읽고
+          #   밟는다 (실측: 높이 0.564 m 칸에 올라타 전복). 254 면 멈춘다.
+          #
+          # 그 '멈추는 자리'가 곧 이륙 지점이므로 이 조합에서는 교착이 아니라
+          # 의도된 동작이다. mode_switch_executor 가 거기서 변신을 실행한다.
+          # 비행 제어가 붙으면 그 다음 구간을 넘겨받는다.
+          fly_over: 254
           impassable: 254
         use_pointcloud: true
         use_laserscan: true
