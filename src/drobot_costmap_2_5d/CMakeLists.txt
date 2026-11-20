@@ -36,6 +36,7 @@ set(dependencies
 
 add_library(elevation_costmap_layer SHARED
   src/elevation_layer.cpp
+  src/elevation_height_layer.cpp
 )
 
 target_include_directories(elevation_costmap_layer PUBLIC

@@ -185,3 +185,23 @@ def test_ssot_constants():
 
     bad = [f'{w}: {v!r} (기대 {e!r})' for w, v, e in found if v != e]
     assert not bad, 'robot_physical.yaml 과 다른 복사본:\n' + '\n'.join(bad)
+
+
+@pytest.mark.parametrize('name', sorted(NAV2_FILES))
+def test_height_layer_matches_planner(name):
+    """
+    플래너가 읽는 높이 레이어의 이름·단위·원천이 costmap 설정과 같아야 한다.
+
+    단위가 다르면 높이를 그만큼 틀리게 읽어 비행 고도가 어긋난다. 이름이 다르면
+    플래너가 레이어를 못 찾고 등급 대표값(0.60 m)으로 떨어진다 — 경고 한 줄만 남는다.
+    """
+    nav2 = _load(NAV2_FILES[name])
+    gc = nav2['global_costmap']['global_costmap']['ros__parameters']
+    grid = nav2['planner_server']['ros__parameters']['GridBased']
+    layer = grid['height_layer']
+    assert layer in gc['plugins'], f'플래너의 height_layer {layer!r} 가 global costmap 에 없다'
+    h = gc[layer]
+    assert h['plugin'] == 'drobot_costmap_2_5d::ElevationHeightLayer'
+    assert h['height_unit'] == grid['height_unit']
+    assert h['source_layer'] == grid['terrain_layer']
+    assert gc['plugins'].index(h['source_layer']) < gc['plugins'].index(layer)

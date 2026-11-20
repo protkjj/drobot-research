@@ -733,6 +733,135 @@ TEST_F(ClearanceTest, HybridStillCrossesByFlightWithClearance)
   EXPECT_TRUE(landed_across);
 }
 
+// ---------------------------------------------------------------------------
+// 실제 높이 격자 (ElevationHeightLayer) — 2026-11-20
+//
+// 등급만 받으면 fly_over(200) 칸을 전부 대표 높이 0.60 m 로 읽어, 가장 낮은 비행
+// 고도 0.8 m 로 '넘을 수 있다' 고 했다. 실제 1.0 m 장애물이면 윗면보다 낮게 난다
+// (COST_HEIGHT_CONTRACT.md 4 절). 높이 격자를 붙이면 잰 높이로 고도를 정한다.
+// 격자 값: 0~250 = 높이 / 0.01 m, 255 = 모름.
+// ---------------------------------------------------------------------------
+class LayerHeightTest : public LayerTerrainTest
+{
+protected:
+  void SetUp() override
+  {
+    LayerTerrainTest::SetUp();
+    height_ = std::make_unique<nav2_costmap_2d::Costmap2D>(
+      kNx, kNy, kRes, 0.0, 0.0, nav2_costmap_2d::NO_INFORMATION);
+    for (unsigned int my = 0; my < kNy; ++my) {
+      for (unsigned int mx = 0; mx < kWallX; ++mx) {
+        height_->setCost(mx, my, 0);   // 벽 왼쪽 바닥 0 m
+      }
+    }
+  }
+
+  /// 벽 열 전체를 h_m 높이로 둔다 (등급은 그대로 fly_over).
+  void setWallHeight(double h_m)
+  {
+    for (unsigned int my = 0; my < kNy; ++my) {
+      height_->setCost(kWallX, my, static_cast<unsigned char>(std::lround(h_m / 0.01)));
+    }
+  }
+
+  ProblemSpec makeHeightSpec(double air_level_step = 0.10)
+  {
+    std::static_pointer_cast<LayerTerrainSource>(layer_terrain_)->setHeightGrid(
+      height_.get(), 0.01);
+    ProblemSpec::Params p;
+    p.flight_clearance = 0.8;
+    p.ceiling_height = 2.5;
+    p.modal = Modal::Hybrid;
+    p.air_level_step = air_level_step;
+    return ProblemSpec(master_.get(), layer_terrain_, &model_, p);
+  }
+
+  std::unique_ptr<nav2_costmap_2d::Costmap2D> height_;
+};
+
+TEST_F(LayerHeightTest, RealHeightSetsFlightAltitude)
+{
+  setWallHeight(1.00);
+
+  // 대조군 — 높이 격자 없이는 대표 0.60 m 로 읽어 0.8 m 로 넘는다 (실제 윗면보다 0.2 m 아래)
+  const ProblemSpec rep = makeLayerSpec(Modal::Hybrid);
+  const int lv_rep = lowestUsableLevel(rep, kWallX, kMidY);
+  ASSERT_GE(lv_rep, 0);
+  EXPECT_NEAR(rep.levelZ(static_cast<uint8_t>(lv_rep)), 0.80, 1e-9);
+
+  const ProblemSpec spec = makeHeightSpec();
+  EXPECT_NEAR(spec.terrain(kWallX, kMidY), 1.00, 1e-9);
+  const int lv = lowestUsableLevel(spec, kWallX, kMidY);
+  ASSERT_GE(lv, 0) << "1.0 m 는 천장 아래로 넘을 수 있는 높이다";
+  EXPECT_GE(spec.levelZ(static_cast<uint8_t>(lv)), 1.00 + model_.minFlightClearance() - 1e-9);
+}
+
+TEST_F(LayerHeightTest, LowObstacleIsStillFlownLow)
+{
+  // 0.30 m 상자는 예전과 같이 가장 낮은 고도(0.8 m)로 넘는다 — 회귀 없음
+  setWallHeight(0.30);
+  const ProblemSpec spec = makeHeightSpec();
+  const int lv = lowestUsableLevel(spec, kWallX, kMidY);
+  ASSERT_GE(lv, 0);
+  EXPECT_NEAR(spec.levelZ(static_cast<uint8_t>(lv)), 0.80, 1e-9);
+}
+
+TEST_F(LayerHeightTest, UnknownHeightFallsBackToGrade)
+{
+  // 높이 격자가 붙어 있어도 그 칸 높이를 모르면(255) 등급 대표값으로 읽는다
+  const ProblemSpec spec = makeHeightSpec();
+  EXPECT_NEAR(spec.terrain(kWallX, kMidY), 0.60, 1e-9);
+}
+
+TEST_F(LayerHeightTest, TooHighForCeilingIsNotFlown)
+{
+  // 1.6 m + 최소 여유 0.2 > 최고 고도(천장 2.5 - 로봇 0.25 - 여유 0.5 = 1.75)
+  setWallHeight(1.60);
+  const ProblemSpec spec = makeHeightSpec();
+  ASSERT_GT(1.60 + model_.minFlightClearance(), spec.zMax());
+  EXPECT_EQ(lowestUsableLevel(spec, kWallX, kMidY), -1);
+}
+
+TEST_F(LayerHeightTest, LethalStaysImpassableEvenWithHeight)
+{
+  // 높이를 알아도 다른 레이어(LiDAR)가 LETHAL 로 막은 칸은 넘지 않는다
+  setWallHeight(0.30);
+  master_->setCost(kWallX, kMidY, nav2_costmap_2d::LETHAL_OBSTACLE);
+  const ProblemSpec spec = makeHeightSpec();
+  EXPECT_EQ(lowestUsableLevel(spec, kWallX, kMidY), -1);
+}
+
+TEST_F(LayerHeightTest, LevelsAreBinnedUpward)
+{
+  // 1 cm 단위 높이가 많아도 후보는 0.1 m 간격으로 묶인다. 올림이라 어느 칸이든
+  // 고른 고도가 실제 높이 + 최소 여유 이상이다.
+  for (unsigned int my = 0; my < kNy; ++my) {
+    height_->setCost(kWallX, my, static_cast<unsigned char>(31 + 3 * my));   // 0.31 ~ 0.88 m
+  }
+  const ProblemSpec spec = makeHeightSpec(0.10);
+  EXPECT_LE(spec.airLevels().size(), 8u) << "높이 20 개가 후보 20 개가 되면 안 된다";
+  for (unsigned int my = 0; my < kNy; ++my) {
+    const int lv = lowestUsableLevel(spec, kWallX, my);
+    ASSERT_GE(lv, 0);
+    EXPECT_GE(
+      spec.levelZ(static_cast<uint8_t>(lv)),
+      spec.terrain(kWallX, my) + model_.minFlightClearance() - 1e-9);
+  }
+}
+
+TEST_F(LayerHeightTest, LevelsFollowTheMapAfterUpdate)
+{
+  // 플래너는 지도가 빈 상태에서 만들어진다. 나중에 보인 장애물 높이에 맞춰
+  // 후보를 다시 만들어야 그 위로 갈 고도가 생긴다 (createPlan 이 updateAirLevels 를 부른다).
+  setWallHeight(0.00);                  // 만들 때는 벽 자리가 평평했다 (후보 0.8 m 하나)
+  ProblemSpec spec = makeHeightSpec();
+  ASSERT_EQ(spec.airLevels().size(), 1u);
+  setWallHeight(1.00);
+  EXPECT_EQ(lowestUsableLevel(spec, kWallX, kMidY), -1) << "갱신 전에는 맞는 고도가 없다";
+  spec.updateAirLevels();
+  EXPECT_GE(lowestUsableLevel(spec, kWallX, kMidY), 0);
+}
+
 int main(int argc, char ** argv)
 {
   ::testing::InitGoogleTest(&argc, argv);

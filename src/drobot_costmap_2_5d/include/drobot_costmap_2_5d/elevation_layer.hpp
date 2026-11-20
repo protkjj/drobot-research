@@ -132,6 +132,17 @@ public:
   /// 좌표에 남아, 빈 바닥이 장애물(보라색 덩어리)로 번진다.
   void updateOrigin(double new_origin_x, double new_origin_y) override;
 
+  /// 카메라가 잰 높이를 out 에 복사한다 — 1 값 = unit_m 미터 (0 ~ kHeightCodeMax).
+  /// 높이를 모르는 칸(카메라가 재지 않은 칸, LiDAR 만 본 칸)은 NO_INFORMATION(255).
+  /// 높이는 classify() 와 같은 값(칸의 최댓값)이다. 격자 크기가 다르면 false.
+  ///
+  /// ElevationHeightLayer 가 부른다. 플래너가 비행 고도를 등급의 대표값(0.60 m)이
+  /// 아니라 실제 높이로 정하게 하려는 것이다 (COST_HEIGHT_CONTRACT.md 4 절).
+  bool copyHeightsTo(nav2_costmap_2d::Costmap2D & out, double unit_m);
+
+  /// copyHeightsTo 가 쓰는 최대 값. 1 cm 단위면 2.50 m — 천장보다 높은 것은 어차피 254 다.
+  static constexpr unsigned char kHeightCodeMax = 250;
+
 private:
   // ---- 콜백 ----------------------------------------------------------
   void pointCloudCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);

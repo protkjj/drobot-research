@@ -391,7 +391,7 @@ global_costmap:
       # SLAM 맵을 따라가면 아직 탐색 못 한 영역이 costmap 밖이 되어
       # 목표점을 찍을 수 없다 (planner: "목표점이 costmap 밖이다").
       # 벤치마크 맵은 크기를 이미 알고 있으므로 아래 width/height 로 고정한다.
-      plugins: ["obstacle_layer", "elevation_layer", "inflation_layer"]
+      plugins: ["obstacle_layer", "elevation_layer", "elevation_height", "inflation_layer"]
 
       # 맵 전체를 덮는 고정 costmap (rolling_window: false)
       # 벤치마크 맵 최대 크기는 24x16m — 여유를 둬서 30x20m 로 잡는다.
@@ -517,6 +517,17 @@ global_costmap:
         # 이 키가 없으면 치환이 일어나지 않는다 (RewrittenYaml 은 '있는 키'만 바꾼다).
         prior_map: ""
 
+      # 실제 높이 (drobot_costmap_2_5d::ElevationHeightLayer) — 2026-11-20
+      # elevation_layer 가 잰 높이를 1 cm 단위로 담는다 (255 = 모름). master 는 건드리지 않는다.
+      # 플래너가 비행 고도를 등급 대표값(fly_over 0.60 m) 대신 이 값으로 정한다 —
+      # 대표값으로는 0.6 m 넘는 장애물 위로 충돌 고도가 나왔다 (COST_HEIGHT_CONTRACT.md 4 절).
+      # 플래너의 height_layer·height_unit 과 같아야 한다 (test_param_consistency.py).
+      elevation_height:
+        plugin: "drobot_costmap_2_5d::ElevationHeightLayer"
+        enabled: true
+        source_layer: "elevation_layer"
+        height_unit: 0.01
+
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # ============================================================
@@ -554,6 +565,11 @@ planner_server:
       # 지형 등급을 읽을 레이어 — master 에서 읽으면 inflation 이 지형이 된다
       # (COST_HEIGHT_CONTRACT.md). 이 이름의 레이어가 없으면 master 로 떨어지며 경고한다.
       terrain_layer: "elevation_layer"
+      # 비행 고도는 이 레이어의 실제 높이로 정한다 (없으면 등급 대표값으로 떨어지며 경고).
+      height_layer: "elevation_height"
+      height_unit: 0.01
+      # 높이가 1 cm 단위로 많아 비행 고도 후보를 이 간격으로 올림해 묶는다 (상태공간 크기).
+      air_level_step: 0.10
       land_only_on_observed: true      # 착륙은 카메라가 본 칸에만 (못 본 장애물 윗면 착륙 방지)
       # 경로 여유 — 이 modal 의 로버가 설 수 없는 칸까지의 거리로 판정한다 (state_space.hpp).
       # 밟고넘기에서는 0.7 m 이하 장애물이 '설 수 있는 곳' 이라 여유를 두지 않는다.

@@ -223,6 +223,34 @@ void HybridAStarPlanner::configure(
   if (grade != nullptr) {
     layer_terrain_ = std::make_shared<LayerTerrainSource>(grade, costmap_, tcfg);
     terrain_ = layer_terrain_;
+
+    // 실제 높이 — 비행 고도를 등급의 대표값(0.60 m) 대신 잰 높이로 정한다.
+    // 없으면 예전처럼 대표값으로 정하고, 0.6 m 넘는 fly_over 장애물 위로는 충돌 고도가
+    // 나올 수 있다 (COST_HEIGHT_CONTRACT.md 4 절).
+    height_layer_ = getS(node, p + "height_layer", height_layer_);
+    const double height_unit = getD(node, p + "height_unit", 0.01);
+    nav2_costmap_2d::Costmap2D * height =
+      height_layer_.empty() ? nullptr : findLayerGrid(*costmap_ros, height_layer_);
+    if (height != nullptr &&
+      (height->getSizeInCellsX() != grade->getSizeInCellsX() ||
+      height->getSizeInCellsY() != grade->getSizeInCellsY()))
+    {
+      RCLCPP_WARN(
+        logger_, "'%s' 격자 크기가 등급 격자와 다르다 — 쓰지 않는다", height_layer_.c_str());
+      height = nullptr;
+    }
+    if (height != nullptr) {
+      layer_terrain_->setHeightGrid(height, height_unit);
+      spec_params_.air_level_step = getD(node, p + "air_level_step", 0.10);
+      RCLCPP_INFO(
+        logger_, "비행 고도: 레이어 '%s' 의 실제 높이 (%.3f m 단위, 후보 간격 %.2f m)",
+        height_layer_.c_str(), height_unit, spec_params_.air_level_step);
+    } else if (!height_layer_.empty()) {
+      RCLCPP_WARN(
+        logger_, "costmap 에 '%s' 레이어가 없다 — 비행 고도를 등급 대표 높이(fly_over %.2f m)로 "
+        "정한다. 그보다 높은 장애물 위로 충돌 고도가 나올 수 있다.",
+        height_layer_.c_str(), tcfg.h_flyover);
+    }
   } else {
     // 대비책 — 예전 방식. 관측 여부를 모르므로 land_only_on_observed 도 효과가 없다.
     RCLCPP_WARN(
@@ -734,6 +762,8 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
   // (master 잠금 안이라 계획 도중에 지형이 바뀌지 않는다)
   spec_->relaxClearanceAround(s_start.mx, s_start.my, relax_cells);
   spec_->updateClearance();
+  // 비행 고도 후보도 지금 지형으로 (updateAirLevels 주석 참고)
+  spec_->updateAirLevels();
 
   if (!spec_->groundOk(s_start.mx, s_start.my)) {
     RCLCPP_WARN(

@@ -10,4 +10,13 @@
       Free / Rover-traversable / Fly-over / Impassable 4단계로 분류한다.
     </description>
   </class>
+  <class
+    name="drobot_costmap_2_5d::ElevationHeightLayer"
+    type="drobot_costmap_2_5d::ElevationHeightLayer"
+    base_class_type="nav2_costmap_2d::Layer">
+    <description>
+      ElevationLayer 가 잰 실제 높이(1 cm 단위, 255 = 모름)를 자기 격자에 담는다.
+      master 는 건드리지 않는다 — 플래너가 비행 고도를 정할 때 읽는다.
+    </description>
+  </class>
 </library>

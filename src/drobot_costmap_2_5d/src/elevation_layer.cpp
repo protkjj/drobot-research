@@ -804,6 +804,27 @@ void ElevationLayer::publishElevationGrid()
   elevation_pub_->publish(msg);
 }
 
+bool ElevationLayer::copyHeightsTo(nav2_costmap_2d::Costmap2D & out, double unit_m)
+{
+  if (out.getSizeInCellsX() != size_x_ || out.getSizeInCellsY() != size_y_ || unit_m <= 0.0) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  unsigned char * dst = out.getCharMap();
+  const size_t n = static_cast<size_t>(size_x_) * size_y_;
+  for (size_t i = 0; i < n; ++i) {
+    const auto & c = cells_[i];
+    if (!c.has_cloud) {
+      dst[i] = NO_INFORMATION;
+      continue;
+    }
+    // 바닥 아래(음수)는 0 으로. 바닥보다 낮은 곳을 날 일은 없다.
+    const double code = std::round(std::max(0.0, static_cast<double>(c.max_z)) / unit_m);
+    dst[i] = static_cast<unsigned char>(std::min(code, static_cast<double>(kHeightCodeMax)));
+  }
+  return true;
+}
+
 }  // namespace drobot_costmap_2_5d
 
 PLUGINLIB_EXPORT_CLASS(

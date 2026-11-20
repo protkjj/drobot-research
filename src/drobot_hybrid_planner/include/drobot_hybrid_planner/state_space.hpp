@@ -184,6 +184,18 @@ public:
   bool collides(unsigned int mx, unsigned int my) const override;
   bool observed(unsigned int mx, unsigned int my) const override;
 
+  /// 실제 높이 격자를 붙인다 (ElevationHeightLayer — drobot_costmap_2_5d).
+  ///   값 0 ~ 250 = 높이 / unit_m,  255 = 모름.  등급·master 와 같은 격자 크기.
+  /// 붙이면 heightAt 이 등급의 대표 높이(fly_over 0.60 m) 대신 잰 높이를 돌려준다.
+  /// 등급이 254 이거나 master 가 LETHAL 이면 여전히 통과 불가, 높이를 모르면 등급으로 떨어진다.
+  /// 대표값으로는 0.6 m 넘는 장애물 위로 충돌 고도가 나왔다 (COST_HEIGHT_CONTRACT.md 4 절).
+  void setHeightGrid(nav2_costmap_2d::Costmap2D * height, double unit_m)
+  {
+    height_ = height;
+    height_unit_ = unit_m;
+  }
+  bool hasHeightGrid() const {return height_ != nullptr;}
+
   /// (mx, my) 에서 radius_cells 안의 INSCRIBED(253) 는 충돌로 치지 않는다.
   ///
   /// 로봇이 이미 벽에 붙어 서 있으면(제어 오차·SLAM 보정) 출발 칸부터 253 이라
@@ -203,6 +215,8 @@ private:
 
   nav2_costmap_2d::Costmap2D * grade_;
   nav2_costmap_2d::Costmap2D * master_;
+  nav2_costmap_2d::Costmap2D * height_ = nullptr;
+  double height_unit_ = 0.01;
   Config cfg_;
   unsigned int relax_mx_ = 0;
   unsigned int relax_my_ = 0;
@@ -234,6 +248,10 @@ public:
   struct Params
   {
     double flight_clearance = 0.8;    ///< 비행 고도 = 지형높이 + 이 값
+    /// 비행 고도 후보를 만들 때 지형 높이를 이 간격으로 올림해 묶는다 (m, 0 = 묶지 않음).
+    /// 등급 높이(3~4 개)를 쓸 때는 필요 없지만, 실제 높이(1 cm 단위)를 쓰면 높이마다
+    /// 후보가 생겨 상태공간이 커진다. 올림이라 묶여도 실제 높이보다 낮게 날지 않는다.
+    double air_level_step = 0.0;
     double ceiling_height = 2.5;      ///< 천장 높이
     bool allow_diagonal = true;
     bool check_diagonal_corners = true;
@@ -280,6 +298,12 @@ public:
   /// 지금 지형으로 '가장 가까운 장애물까지 거리' 지도를 다시 만든다.
   /// 지형이 계속 바뀌므로 계획마다 한 번 부른다 (createPlan). 생성자도 한 번 부른다.
   void updateClearance();
+
+  /// 비행 고도 후보를 지금 지형으로 다시 만든다. 플래너가 계획마다 부른다.
+  /// 생성 시점(플래너 configure)에는 지도가 비어 있어 후보가 평지 위 하나(0.8 m)뿐이다.
+  /// 등급 대표 높이만 쓸 때는 그것으로 충분했지만(fly_over 0.60 + 여유 0.2 = 0.8),
+  /// 실제 높이를 쓰면 그 뒤에 보인 장애물 높이에 맞는 후보가 있어야 한다.
+  void updateAirLevels() {buildAirLevels();}
   /// 가장 가까운 장애물까지 거리 (m). 꺼져 있거나 계산 범위 밖이면 매우 큰 값.
   double clearance(unsigned int mx, unsigned int my) const;
   /// 이 칸을 1 m 지날 때 더해지는 여유 비용 (꺼져 있으면 0).

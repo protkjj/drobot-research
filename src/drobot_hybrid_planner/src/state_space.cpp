@@ -73,6 +73,12 @@ double LayerTerrainSource::heightAt(unsigned int mx, unsigned int my) const
   }
   const unsigned char g = grade_->getCost(mx, my);
   if (g == nav2_costmap_2d::NO_INFORMATION) {return cfg_.h_free;}   // 미관측 — 낙관
+  if (g > cfg_.flyover_max) {return cfg_.h_impassable;}
+  // 실제 높이를 알면 그걸 쓴다. 등급은 '어떻게 지나가나', 높이는 '얼마나 높이 날아야 하나'.
+  if (height_ != nullptr) {
+    const unsigned char v = height_->getCost(mx, my);
+    if (v != nav2_costmap_2d::NO_INFORMATION) {return v * height_unit_;}
+  }
   if (g <= cfg_.free_max) {return cfg_.h_free;}
   if (g <= cfg_.rover_max) {return cfg_.h_rover;}
   if (g <= cfg_.flyover_max) {return cfg_.h_flyover;}
@@ -364,21 +370,30 @@ void ProblemSpec::buildAirLevels()
   //
   // CostmapTerrainSource 는 cost 를 4등급으로 읽으므로 후보가 많아야 3~4개다.
   // 상태공간이 그만큼만 늘어난다.
+  //
+  // 실제 높이(ElevationHeightLayer)를 쓰면 높이가 1 cm 단위로 많아서 air_level_step
+  // 간격으로 올림해 묶는다. 올림이라 묶인 후보로도 실제 높이 + 최소 여유를 지킨다.
+  //
+  // h + flight_clearance 가 천장 제약(z_max)을 넘어도 h + 최소 여유가 그 안이면
+  // z_max 를 후보로 넣는다. 등급 높이(0.60 m 하나)를 쓸 때는 이런 칸이 없었지만,
+  // 실제 높이에서는 0.95 ~ 1.2 m 장애물이 생기고 그 위로 갈 고도가 따로 있어야 한다.
+  const double step = params_.air_level_step;
+  const double min_clr = model_->minFlightClearance();
   std::set<double> heights;
   const unsigned int nx = costmap_->getSizeInCellsX();
   const unsigned int ny = costmap_->getSizeInCellsY();
   for (unsigned int my = 0; my < ny; ++my) {
     for (unsigned int mx = 0; mx < nx; ++mx) {
-      const double h = terrain_->heightAt(mx, my);
-      if (h > h_limit_) {continue;}      // 어차피 못 넘는 높이
+      double h = terrain_->heightAt(mx, my);
+      if (step > 0.0) {h = std::ceil(h / step - 1e-9) * step;}
+      if (h + min_clr > z_max_ + 1e-9) {continue;}      // 어떤 고도로도 못 넘는 높이
       heights.insert(h);
     }
   }
 
   std::set<double> levels;
   for (const double h : heights) {
-    const double z = h + params_.flight_clearance;
-    if (z <= z_max_ + 1e-9) {levels.insert(z);}
+    levels.insert(std::min(h + params_.flight_clearance, z_max_));
   }
   // 최소 하나는 있어야 이륙이 가능하다 (평지 위 비행)
   if (levels.empty()) {

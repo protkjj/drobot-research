@@ -124,6 +124,13 @@ fly_over 등급 하나가 0.15 < h ≤ 1.2 m (fly_over_max) 를 전부 덮는데
 0.6 m 를 넘는 fly_over 장애물 위로는 충돌 고도로 계획이 나온다.
 아래 medium_open 결과가 실제로 그랬다.
 
+> **2026-11-20 갱신 — 높이 격자로 해소.** `drobot_costmap_2_5d::ElevationHeightLayer`
+> (`elevation_height`) 가 ElevationLayer 의 실제 높이를 1 cm 단위로 담고(255 = 모름),
+> `LayerTerrainSource::setHeightGrid` 로 붙이면 `heightAt` 이 대표값 대신 잰 높이를 돌려준다.
+> 비행 고도 후보는 계획마다 다시 만들고(`ProblemSpec::updateAirLevels`) `air_level_step`
+> (0.10 m) 간격으로 올림해 묶는다. 테스트 `LayerHeightTest` 7 개 — 1.0 m 장애물이면
+> 0.8 m 가 아니라 1.2 m 이상으로 넘는다. 높이를 모르는 칸은 여전히 대표값으로 떨어진다.
+
 ## 5. 실제 맵에서 — 호스트 설정만 바꿔 같은 문제를 푼다
 
 `BenchmarkMapDecisionsPerHostConfig`.
