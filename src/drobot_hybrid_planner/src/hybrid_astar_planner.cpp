@@ -779,6 +779,10 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
 
   std::vector<Waypoint> wps = toWaypoints(r.path);
   double final_cost = r.cost;
+  // 로그의 E·T 는 실제로 내보내는 경로의 값이어야 한다. 예전에는 C 만 스무딩 후
+  // 값이고 E·T 는 스무딩 전 격자 경로 값이라 서로 맞지 않았다 (2026-11-20 확인:
+  // C=5.4224 인데 같은 줄의 E·T 로 계산하면 5.852).
+  CostAccumulator final_acc = r.acc;
 
   if (smooth_path_) {
     const std::vector<Waypoint> sm = smooth(wps);
@@ -793,6 +797,7 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
     if (ok && energy_.cost(total) <= r.cost) {
       wps = sm;
       final_cost = energy_.cost(total);
+      final_acc = total;
     }
   }
 
@@ -802,7 +807,8 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
   RCLCPP_INFO(
     logger_,
     "경로 생성: C=%.4f (E=%.3fWh T=%.1fs 전환=%d 여유비용=%.3f) | %zu 노드 확장, %zu 점, %.3fs",
-    final_cost, r.acc.eTotal(), r.acc.time_s, r.acc.nSwitches(), r.acc.clearance_penalty,
+    final_cost, final_acc.eTotal(), final_acc.time_s, final_acc.nSwitches(),
+    final_acc.clearance_penalty,
     r.n_expanded, wps.size(), elapsed);
 
   // 탐색은 timeout 안에 끝나도 후처리가 늦으면 전체가 제약을 넘는다.

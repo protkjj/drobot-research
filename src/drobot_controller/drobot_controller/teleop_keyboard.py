@@ -278,7 +278,7 @@ def main():
                 print('ARM -> UNFOLD (flight mode)')
                 print(arm_current)
                 continue
-            elif key == '3': 
+            elif key == '3':
                 with arm_lock:
                     arm_start['rr_arm_rev'] = arm_current['rr_arm_rev']
                     arm_target['rr_arm_rev'] = ARM_UNFOLD

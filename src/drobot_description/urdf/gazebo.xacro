@@ -41,6 +41,12 @@
 
   <!-- ========== ARM JOINT POSITION CONTROLLERS ========== -->
   <!-- Servo spec: 25kg·cm (2.45 N·m), 0.13s/60° @ 6.8V -->
+  <!-- PID 는 참고 저장소 원본값(p 20, i 1, d 2, i_max 5)으로 되돌렸다. 2026-10-05
+       한때 p 80 / i 10 / i_max 14 로 올려 봤다. 암이 목표 전에 멈추는 것
+       (목표 1.5708 → 실제 1.27~1.42 rad)을 중력·마찰에 대한 정상상태 오차로
+       보고 토크 여유를 쓰게 하려던 것이었다. 그러나 그 값으로 처음 재실행한
+       순간 시뮬 거동이 불안정해졌고, 애초에 효과 검증도 못 한 변경이라
+       되돌린다. 변신 각도 정밀도는 실제 비행 연동 때 다시 다룬다. -->
   <gazebo>
     <plugin filename="gz-sim-joint-position-controller-system"
             name="gz::sim::systems::JointPositionController">

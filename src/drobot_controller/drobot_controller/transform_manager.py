@@ -5,7 +5,8 @@
 # license that can be found in the LICENSE file or at
 # https://opensource.org/licenses/MIT.
 
-"""로버 ↔ 드론 변신(암 회전) 시퀀스.
+"""
+로버 ↔ 드론 변신(암 회전) 시퀀스.
 
 암 4 개를 동시에 목표 각도로 보내고, 실제로 그 각도에 도달할 때까지 기다린다.
 

@@ -26,7 +26,7 @@ elevation_layer:
     # 4단계: Free / Rover-traversable / Fly-over / Impassable
     height_thresholds:
       rover_traversable_max: 0.15    # m — 이 이하는 바퀴로 넘을 수 있음
-      fly_over_max: 2.0              # m (참고) — 실배선은 nav2_params 에서 1.2 (천장 제약)
+      fly_over_max: 1.2              # m — 천장 제약에서 유도 (아래 '주의'). 매니페스트 초안은 2.0
       # fly_over_max 초과 → Impassable
 
     # 천장 높이 — Impassable 판정 기준
@@ -41,10 +41,10 @@ elevation_layer:
     min_ceiling_clearance: 0.5       # m  ← SSOT: robot_physical.yaml
     #
     # 주의: 위 세 값으로 계산하면 실제 통과 가능 높이는
-    #       2.5 - 0.8 - 0.5 = 1.2m 다.
-    #       fly_over_max(2.0)가 이보다 크므로 1.2~2.0m 구간은
-    #       fly-over로 분류되지만 실제로는 넘을 수 없다.
-    #       레이어가 시작할 때 이 불일치를 경고로 남긴다.
+    #       2.5 - 0.8 - 0.5 = 1.2m 다. fly_over_max 를 이보다 크게 두면
+    #       그 구간이 fly-over 로 분류되지만 실제로는 넘을 수 없다
+    #       (레이어가 시작할 때 경고한다). 그래서 1.2 로 둔다.
+    #       예전 값 2.0 은 nav2_params(1.2) 와 어긋나 있었다 (2026-11-20 정정).
 
     # ===== Traversability 판단 지표 =====
     traversability:

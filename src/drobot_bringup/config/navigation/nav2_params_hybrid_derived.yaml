@@ -240,8 +240,11 @@ local_costmap:
           obstacle_max_range: 2.5
           obstacle_min_range: 0.3
 
-      # 2.5D elevation (local) — MPPI 가 지형 cost(200=flyover 등)를 읽도록 global 과 동일 배선.
-      # 파라미터는 global 과 동일하게 유지 (SSOT 기준: elevation_params.yaml).
+      # 2.5D elevation (local) — 컨트롤러가 지형 cost(200=flyover 등)를 읽도록 global 과 동일 배선.
+      # 지금 컨트롤러는 DWB 다 (FollowPath 참고). 계획서는 MPPI 였으나 구현된 적이 없다
+      # (documents/REQUIREMENTS_TRACE.md S-6, D-1).
+      # 파라미터는 global 과 동일하게 유지한다. 런타임에 읽히는 값은 이 파일이고,
+      # drobot_costmap_2_5d/config/elevation_params.yaml 은 설명용이다 (launch 가 읽지 않는다).
       elevation_layer:
         plugin: "drobot_costmap_2_5d::ElevationLayer"
         enabled: true

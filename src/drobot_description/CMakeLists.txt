@@ -16,7 +16,7 @@ find_package(ament_cmake REQUIRED)
 # GitHub 에서 실제 데이터가 사라졌다(404). 포인터 파일만 남아 있거나
 # 아예 삭제된 머신이 있다. 이들은 hospital 월드용이고 벤치마크 맵
 # (worlds/benchmark/)에는 쓰이지 않으므로 없어도 실험이 돌아간다.
-set(_asset_dirs urdf meshes scripts config object worlds models)
+set(_asset_dirs urdf meshes scripts config object worlds models maps)
 set(_present_dirs "")
 foreach(_d ${_asset_dirs})
   if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_d}")

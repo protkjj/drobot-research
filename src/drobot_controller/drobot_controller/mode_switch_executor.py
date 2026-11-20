@@ -5,7 +5,8 @@
 # license that can be found in the LICENSE file or at
 # https://opensource.org/licenses/MIT.
 
-"""경로의 모드 전환점에 도달하면 변신 모션을 실행한다.
+"""
+경로의 모드 전환점에 도달하면 변신 모션을 실행한다.
 
 무엇을 잇는가
     플래너(HybridAStarPlanner)는 경로와 함께 /mode_switch_points 로
@@ -42,8 +43,8 @@
 
 import math
 
-import rclpy
 from drobot_msgs.msg import ModeSwitchPlan, ModeSwitchPoint
+import rclpy
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
 from rclpy.executors import MultiThreadedExecutor
