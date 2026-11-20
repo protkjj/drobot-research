@@ -88,6 +88,11 @@ inactive 여도 액션 이름은 보인다. 그 상태면 RViz 에서 목표를 
 
 ## 3. 실험 실행 (C 트랙)
 
+`DROBOT_ENERGY=derived ./sync.sh run base_map_h0.5` 가 아래 셋(시뮬 + mode_manager + record_run)을
+한 번에 한다 (재현용: `DROBOT_RUN_GOAL="x y"` 로 목표, `DROBOT_RUN_TIMEOUT=300` 으로 기록 시간).
+Nav2 가 active 가 될 때까지 기다리고, 끝나면 결과를 `benchmark/results/` 로 가져오고 끈다.
+화면으로 보면서 하려면 아래처럼 터미널을 나눠 직접 띄운다.
+
 ### 터미널 2 — 모드 전환 관리자
 
 ```bash
@@ -307,12 +312,15 @@ pkill -f gz-sim; pkill -f ruby; pkill -f rviz2; pkill -f ros2
 
 원인 두 가지를 찾아 고쳤다.
 
-- **렌더 엔진**: 월드의 `<render_engine>` 이 `ogre2` 면 RTX 5070 Ti + gz-sim 8.11
-  에서 렌더 스레드 초기화가 안 끝난다. 월드 12개를 `ogre` (v1) 로 바꿨다.
-  **월드를 새로 만들 때 `ogre2` 를 쓰지 말 것.**
-- **실행 사용자**: `docker exec -u $(id -u):$(id -g)` 로 `ros2 launch` 를 띄우면
-  같은 증상이 난다. root 로 띄우면 매번 성공한다 (3/3 vs 전부 실패).
-  `sync.sh` 의 `do_sim` 에서 `-u` 를 뺐다. **빌드는 `-u` 를 유지해야 한다**
+- **렌더 엔진 — 판단이 틀렸었다 (2026-10-02 정정)**: 처음엔 `ogre2` 가 RTX 5070 Ti 에서
+  멈춘다고 보고 월드 12개를 `ogre`(v1) 로 바꿨다. 그런데 아래 `-u` 문제를 고친 뒤 다시 재니
+  `ogre2` 가 3/3 정상이었다. 두 원인을 동시에 고쳐서 섞어 판단한 것이다.
+  지금은 launch 가 `render_engine:=ogre2` 를 기본으로 월드 사본에 덮어쓴다 (track-b).
+  `ogre`(v1) 는 RTX 4070 SUPER 에서 라이다가 모든 빔에 0.5 m 를 내 쓸 수 없었다.
+- **실행 사용자 — 이것도 지금은 재현되지 않는다 (2026-10-02 정정)**: 처음엔 `-u` 로 띄우면
+  멈추고 root 면 된다고 봤다. ogre2 기준으로 `-u` 도 3/3 정상이었다.
+  그래도 시뮬은 root 로 띄운다 — 붙는 도구(mode_manager·record_run·확인 명령)가 전부
+  root 라서 같은 사용자여야 하기 때문이다 (4-9). **빌드는 `-u` 를 유지한다**
   (산출물이 root 소유가 되면 호스트에서 못 지운다).
 
 재발하면 진단 스크립트를 쓴다.
@@ -338,8 +346,11 @@ UID 그룹과 /dev/dri 권한, 컨테이너·GPU 재시작, 노드 기동 지연
 **바꾼 걸 시험하기 전에 설치본에 들어갔는지 확인하는 습관을 들일 것.**
 
 ```bash
-docker exec drobot_ros2 bash -lc 'grep render_engine /app/install/drobot_description/share/drobot_description/worlds/base_map_h0.5.sdf'
+grep -m1 render_engine ~/Desktop/drobot-research/sim.log   # [INFO] render_engine=ogre2 -> ...
 ```
+
+월드 파일에는 아직 `ogre` 가 적혀 있지만 launch 가 사본을 만들어 덮어쓴다.
+그래서 설치본 월드를 grep 하면 안 되고, 실제로 쓴 값은 `sim.log` 에서 본다.
 
 ### 4-3. 파이프에 물리면 출력이 안 보인다
 
@@ -500,21 +511,46 @@ docker exec drobot_ros2 bash -c 'ps -eo pid,lstart,cmd | grep "[g]z sim"'   # �
 
 ---
 
+## 4-9. ROS 노드는 같은 사용자로 띄운다
+
+2026-10-02 에 겪었다. 시뮬(root) 에 record_run 을 `-u`(사용자)로 붙였더니 액션 서버는
+'발견' 했지만 토픽을 하나도 못 받았고, 보낸 목표는 bt_navigator 에 닿지도 않았다
+(bt_navigator 로그에 수신 기록 없음). 반대로 사용자로 띄운 시뮬에 root 쪽 `ros2 lifecycle get`
+은 빈 응답이었다. DDS(공유메모리) 가 다른 사용자끼리 통신하지 못한 것으로 본다.
+
+규칙: 시뮬·mode_manager·record_run·확인 명령은 전부 `docker exec drobot_ros2 ...`
+(= root) 로. `-u` 는 빌드에만 쓴다. 결과 파일은 끝나고 `chown` 한다 (`sync.sh run` 이 그렇게 한다).
+
+---
+
 ## 5. 지금 알려진 문제
 
 | 트랙 | 문제 | 상태 |
 |---|---|---|
-| A | 빈 바닥이 0.25 m 로 측정돼 fly_over 로 분류됨 — URDF `base_footprint_joint` z=0.25 가 원인 (gz 실측 z=-0.2518) | `fix/floor-offset` 에서 수정, 시뮬 재측정 대기 |
-| 공동 | 카메라(실제 0.36 m)가 0.5 m 장애물 윗면을 못 봄 → 미관측 → `track_unknown_space: false` 라 free → 착륙 가능으로 보임 | 플래너에서 착륙만 관측 칸으로 제한 (`fix/floor-offset`), 테스트 대기 |
-| B | 플래너가 inflation 값을 지형 등급으로 읽음 — 벽에서 0.45 m 이내가 fly_over 로 읽힘 | 수정 — 지형은 ElevationLayer 에서 읽음 (`fix/floor-offset`), 테스트 대기 |
+| A | 빈 바닥이 0.25 m 로 측정돼 fly_over 로 분류됨 — URDF `base_footprint_joint` z=0.25 가 원인 (gz 실측 z=-0.2518) | 수정, 시뮬 검증 완료 |
+| 공동 | 카메라(실제 0.36 m)가 0.5 m 장애물 윗면·뒤를 못 봄 → 착륙만 관측 칸으로 제한했다 | **대가: 카메라보다 높은 장애물 뒤로는 날아서 착륙할 수 없다.** 비행이 거의 안 나올 수 있음 — 팀 결정 필요 (HANDOFF 2-2) |
+| B | 플래너가 inflation 값을 지형 등급으로 읽음 — 벽에서 0.45 m 이내가 fly_over 로 읽힘 | 수정, 테스트·시뮬 확인 |
+| B | 출발 칸이 벽 옆(253)이면 계획 실패 (위 수정의 부작용) | track-b 에서 출발점 0.35 m 안 253 완화. 테스트 없음 |
+| B | 컨트롤러에 듬성한 꺾임점 + yaw 0 경로를 넘겨 로봇이 좌우로 흔들림 | track-b 에서 0.05 m 간격·진행 방향 yaw 로 수정 (회전만 76% -> 7%, B 측정) |
+| A | ElevationLayer 가 rolling window 를 지원하지 않아 local costmap 에 높이가 엉뚱하게 쌓임 | track-b 에서 local costmap 에서 제외 (회피). `updateOrigin` 구현이 근본 해결 |
+| B | derived 에서 출발→목표 19.4 m 를 한 번에 날았다 / 휴리스틱이 admissible 하지 않았다 | track-b 에서 비행 1구간 5 m 제약 + 휴리스틱 하한 수정 |
+| B | 경로가 상자·벽에 붙어 로봇이 상자 모서리에 박혔다 (3회 중 2회) | **수정** (`fix/path-clearance`) — 3회 모두 충돌 없음, 상자까지 0.65 m 이상 |
+| C | 비행 착륙 직후 aborted (1회) | 원인 미확인 — 로그를 남기며 재현 필요 |
+| 공동 | `xy_goal_tolerance: 0.75` 라 목표 0.75 m 앞에서 succeeded | **0.30 으로 수정** (checker·DWB 둘 다) — 0.27~0.28 m 에서 도착 |
+| A | 목표 표시 원판(goal_marker)이 지형으로 읽혀 목표 칸이 막힌다 → 목표가 0.3~0.4 m 옮겨짐 | **원판 2 mm 로 수정** (생성기 + 월드 6개) |
+| B | medium_open 에서 로봇이 한 곳을 맴돈다 | 원인: 계획 시간 초과 → 복구가 costmap 삭제 → ElevationLayer 기억 소실 → 벽 뚫는 경로. `clear_on_reset: false` 로 맴돌기는 없앰 |
+| B | **벽을 아는 미로(medium_open)에서 우회 경로를 2 s 안에 못 찾는다** → aborted | 진짜 병목. 휴리스틱 개선·timeout 등 결정 필요 (HANDOFF 0-3) |
+| 공동 | launch 가 출발점 (2, 1)·마커 목표 (2, 10) 를 모든 월드에 고정 — `spawn_positions.yaml` 을 안 읽는다 | 미수정 |
+| B | 경로 여유 비용이 계획 시간을 2~7 배 늘린다 (휴리스틱에 안 들어감) | 큰 맵에서 가중치·timeout 조정 검토 |
 | B | 플래너가 21 cm 구간에 이착륙을 건다 (전환 1회 11.2 Wh) | 바닥 수정 후 재측정 필요 |
 | B | 재계획이 잦고 전환점이 매 계획마다 튄다 | 바닥 수정 후 재측정 필요 |
 | B | 착륙점이 장애물 한가운데로 잡힌다 | 원인은 미관측 → free. 위 착륙 제한으로 대응, 재측정 필요 |
 | 공동 | 설정 파일의 에너지 값 31개가 전부 버려져 `DROBOT_ENERGY=derived` 가 적용되지 않았다 (이전 derived 기록은 default 로 계획된 것) | 수정 (`fix/floor-offset`) — derived 결과는 다시 낼 것 |
 | B | `scripts/test_maps.py` 린터 실패 (flake8 94 · pep257 2, 대부분 작은따옴표 규칙) | 동작 무관, 미수정 |
-| A | 런치로 띄울 때만 ogre 초기화가 불안정한 근본 원인 (회피책은 적용됨) | 미규명 |
+| A | 렌더 엔진 — RTX 5070 Ti 에서 ogre2 가 멈춘다던 판단 | 틀렸음. ogre2 3/3 정상 (2026-10-02). 기본값 ogre2 |
 | 공동 | `angular_dist_threshold: 0.1`(5.7°)이라 제자리 회전이 수렴하지 못하고 yaw 회전이 과다했다 | 0.785(45°)로 수정 (`fix/floor-offset`), 재측정 필요 |
 | 공동 | 규약은 TF 를 `base_link` 로 정했는데 실제는 `base_footprint` (바닥 수정 후 둘은 같은 자리) | 문서만 맞추면 됨 |
+| C | `sync.sh stop` 이 mode_manager·record_run 을 안 꺼서 관리자가 중복됐다 / `sync.sh run` 이 record_run 을 `-u` 로 띄워 통신 불가 / mode_manager 없이 돌아 비행이 실행되지 않았다 | 수정 (2026-10-02) |
 | C | INA226 실측 — 지금은 `reference_power.yaml` 추정값 | Phase 2 |
 
 상세와 근거는 `HANDOFF.md` 2절·3절.

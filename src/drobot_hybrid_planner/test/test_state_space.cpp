@@ -26,6 +26,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <queue>
 #include <set>
@@ -603,6 +604,133 @@ TEST_F(StateSpaceTest, NearestGroundCellFindsClosestReachableCell)
   EXPECT_EQ(oy, 2u);
   // 반경 0 이면 대신 쓸 칸이 없다
   EXPECT_FALSE(spec.nearestGroundCell(kWallX, kMidY, 0, ox, oy));
+}
+
+
+// ---------------------------------------------------------------------------
+// 경로 여유 (ProblemSpec::updateClearance 등)
+//
+// 2026-10-02 시뮬에서 경로가 상자 모서리를 바짝 돌아 로봇이 거기 박혔다.
+// 같은 맵(0.60 m fly_over 벽 한 줄)으로 시험한다. 이 벽은
+//   우회·하이브리드 (로버 0.15 m) -> 설 수 없는 장애물 -> 여유를 둔다
+//   밟고넘기       (로버 0.70 m) -> 올라탈 곳        -> 여유를 두지 않는다
+// 벽에서 k 칸 떨어진 칸의 거리는 k × 0.05 m 다.
+// ---------------------------------------------------------------------------
+class ClearanceTest : public StateSpaceTest
+{
+protected:
+  ProblemSpec makeClearanceSpec(
+    Modal modal, double min_clearance, double weight, double range = 1.0) const
+  {
+    ProblemSpec::Params p;
+    p.flight_clearance = 0.8;
+    p.ceiling_height = 2.5;
+    p.modal = modal;
+    p.min_ground_clearance = min_clearance;
+    p.clearance_weight = weight;
+    p.clearance_decay = 2.0;
+    p.clearance_range = range;
+    return ProblemSpec(costmap_.get(), terrain_, &model_, p);
+  }
+};
+
+TEST_F(ClearanceTest, CellsTooCloseToObstacleAreNotDrivableOrLandable)
+{
+  const ProblemSpec spec = makeClearanceSpec(Modal::Hybrid, 0.30, 0.0);
+  for (unsigned int k = 1; k <= 5; ++k) {   // 0.05 ~ 0.25 m
+    EXPECT_FALSE(spec.groundOk(kWallX - k, kMidY)) << "k=" << k;
+  }
+  EXPECT_TRUE(spec.groundOk(kWallX - 6, kMidY)) << "0.30 m 는 허용";
+  EXPECT_TRUE(spec.groundOk(kWallX - 7, kMidY));
+  // 착륙도 같은 제약 — 장애물 바로 옆에 내려앉지 않는다
+  EXPECT_FALSE(spec.landingOk(kWallX + 3, kMidY));
+  EXPECT_TRUE(spec.landingOk(kWallX + 6, kMidY));
+}
+
+TEST_F(ClearanceTest, ClimbModalKeepsNoClearanceFromClimbableObstacle)
+{
+  // 밟고넘기에서 0.60 m 벽은 올라탈 곳이다. 앞에서 막으면 밟고넘기가 성립하지 않는다.
+  const ProblemSpec climb = makeClearanceSpec(Modal::RoverClimb, 0.30, 1.0);
+  EXPECT_TRUE(climb.groundOk(kWallX - 1, kMidY));
+  EXPECT_TRUE(climb.groundOk(kWallX, kMidY)) << "벽 위에 올라설 수 있어야 한다";
+  EXPECT_NEAR(climb.clearancePenaltyPerMeter(kWallX - 1, kMidY), 0.0, 1e-12);
+
+  // 대조군 — 같은 설정의 우회에서는 막힌다
+  const ProblemSpec detour = makeClearanceSpec(Modal::RoverDetour, 0.30, 1.0);
+  EXPECT_FALSE(detour.groundOk(kWallX - 1, kMidY));
+}
+
+TEST_F(ClearanceTest, PenaltyIsLargestAtMinimumAndZeroBeyondRange)
+{
+  const ProblemSpec spec = makeClearanceSpec(Modal::Hybrid, 0.30, 1.0);
+  EXPECT_NEAR(spec.clearancePenaltyPerMeter(kWallX - 6, kMidY), 1.0, 1e-5);             // 0.30 m
+  EXPECT_NEAR(spec.clearancePenaltyPerMeter(kWallX - 12, kMidY), std::exp(-0.6), 1e-5);  // 0.60 m
+
+  // 범위 밖은 0. 경계(정확히 range)는 float 누적 오차로 어느 쪽이든 될 수 있어 피한다.
+  const ProblemSpec short_range = makeClearanceSpec(Modal::Hybrid, 0.30, 1.0, 0.8);
+  EXPECT_GT(short_range.clearancePenaltyPerMeter(kWallX - 15, kMidY), 0.0);         // 0.75 m
+  EXPECT_NEAR(short_range.clearancePenaltyPerMeter(kWallX - 17, kMidY), 0.0, 1e-12);  // 0.85 m
+
+  // 같은 길이의 이동이라도 장애물 옆이 더 비싸다 (벽과 나란히 한 칸)
+  const auto near = spec.groundEdge(kWallX - 6, kMidY, kWallX - 6, kMidY + 1, kRes);
+  const auto far = spec.groundEdge(1, kMidY, 1, kMidY + 1, kRes);
+  EXPECT_NEAR(near.clearance_penalty, 1.0 * kRes, 1e-6);
+  EXPECT_GT(model_.cost(near), model_.cost(far));
+  // 에너지·시간은 그대로다 — 여유 비용은 별도 항
+  EXPECT_NEAR(near.eTotal(), far.eTotal(), 1e-12);
+  EXPECT_NEAR(near.time_s, far.time_s, 1e-12);
+}
+
+TEST_F(ClearanceTest, ZeroSettingsKeepPreviousBehaviour)
+{
+  // 기본(0) 이면 예전과 같아야 한다 — 벤치마크·다른 테스트가 이 경로를 탄다
+  const ProblemSpec spec = makeSpec(Modal::Hybrid);
+  EXPECT_TRUE(spec.groundOk(kWallX - 1, kMidY));
+  const auto e = spec.groundEdge(kWallX - 1, kMidY, kWallX - 1, kMidY + 1, kRes);
+  EXPECT_NEAR(e.clearance_penalty, 0.0, 1e-12);
+  EXPECT_NEAR(model_.cost(e), model_.cost(model_.groundMove(kRes)), 1e-12);
+}
+
+TEST_F(ClearanceTest, StartRelaxLetsRobotLeaveObstacleSide)
+{
+  // 로봇이 이미 벽에서 0.10 m 에 서 있다 — 풀어 주지 않으면 출발 칸부터 막힌다
+  ProblemSpec spec = makeClearanceSpec(Modal::Hybrid, 0.30, 1.0);
+  ASSERT_FALSE(spec.groundOk(kWallX - 2, kMidY));
+
+  spec.relaxClearanceAround(kWallX - 2, kMidY, 7);   // 0.35 m
+  EXPECT_TRUE(spec.groundOk(kWallX - 2, kMidY));
+  EXPECT_FALSE(spec.groundOk(kWallX - 2, kMidY + 8)) << "반경 밖은 그대로 막힌다";
+
+  spec.relaxClearanceAround(kWallX - 2, kMidY, 0);   // 해제
+  EXPECT_FALSE(spec.groundOk(kWallX - 2, kMidY));
+}
+
+TEST_F(ClearanceTest, SegmentPenaltyMatchesGridEdges)
+{
+  // 스무딩한 직선(segmentClearancePenalty)과 격자 경로(groundEdge)가 같은 값을 내야
+  // 스무딩이 모서리를 다시 자르지 않는다. 벽 쪽으로 다가가는 가로 구간으로 잰다.
+  const ProblemSpec spec = makeClearanceSpec(Modal::Hybrid, 0.30, 1.0);
+  const unsigned int x0 = kWallX - 16, x1 = kWallX - 6;
+  double grid = 0.0;
+  for (unsigned int x = x0; x < x1; ++x) {
+    grid += spec.groundEdge(x, kMidY, x + 1, kMidY, kRes).clearance_penalty;
+  }
+  double ax, ay, bx, by;
+  costmap_->mapToWorld(x0, kMidY, ax, ay);
+  costmap_->mapToWorld(x1, kMidY, bx, by);
+  EXPECT_NEAR(spec.segmentClearancePenalty(ax, ay, bx, by), grid, 1e-9);
+  EXPECT_GT(grid, 0.0);
+}
+
+TEST_F(ClearanceTest, HybridStillCrossesByFlightWithClearance)
+{
+  // 여유를 지켜도 이륙·착륙할 칸이 남아 비행으로 건너야 한다 (이 맵엔 우회로가 없다)
+  const ProblemSpec spec = makeClearanceSpec(Modal::Hybrid, 0.30, 1.0);
+  const auto seen = reachable(spec, State{1, kMidY, GROUND, 0});
+  const bool landed_across = std::any_of(
+    seen.begin(), seen.end(),
+    [](const auto & k) {return std::get<0>(k) > kWallX && std::get<2>(k) == GROUND;});
+  EXPECT_TRUE(landed_across);
 }
 
 int main(int argc, char ** argv)

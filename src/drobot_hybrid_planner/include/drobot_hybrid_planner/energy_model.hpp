@@ -54,6 +54,11 @@ struct CostAccumulator
   int n_takeoff = 0;
   int n_landing = 0;
 
+  /// 경로 여유 페널티 (무차원). 에너지·시간이 아니라 '장애물에 붙어 간 정도' 의 비용이다.
+  /// EnergyModel::cost 에 그대로 더해지고, eTotal() 같은 에너지 집계에는 안 들어간다.
+  /// ProblemSpec 의 clearance_weight 가 0 이면 항상 0 이다 (벤치마크·테스트 기본).
+  double clearance_penalty = 0.0;
+
   /// 이동 에너지 = 지상 + 비행(수평+수직). 전환 에너지는 제외.
   double eMotion() const {return e_ground + e_air_horiz + e_air_vert;}
   double eAir() const {return e_air_horiz + e_air_vert;}
@@ -73,6 +78,7 @@ struct CostAccumulator
     r.dist_air = dist_air + o.dist_air;
     r.n_takeoff = n_takeoff + o.n_takeoff;
     r.n_landing = n_landing + o.n_landing;
+    r.clearance_penalty = clearance_penalty + o.clearance_penalty;
     return r;
   }
 

@@ -78,6 +78,13 @@ planner_server:
       # 못 본 장애물 윗면이 평지로 보여 그 위에 착륙하던 것을 막는다.
       land_only_on_observed: true
 
+      # 경로 여유 — 이 modal 의 로버가 설 수 없는 칸까지의 거리로 판정한다 (state_space.hpp).
+      # 밟고넘기에서는 0.7 m 이하 장애물이 '설 수 있는 곳' 이라 여유를 두지 않는다.
+      min_ground_clearance: 0.30       # m — 이보다 가까운 칸은 주행·착륙 불가 (footprint 0.45 m: 내접 0.225 ~ 외접 0.318)
+      clearance_weight: 1.0            # 장애물 바로 옆에서 1 m 당 더하는 비용 (지상 주행 1 m 가 약 0.8)
+      clearance_decay: 2.0             # 1/m — global inflation 의 cost_scaling_factor 와 같은 값
+      clearance_range: 1.0             # m — 이보다 멀면 비용 0 (global inflation_radius 와 같은 값)
+
       # 최대 상승/하강 각도 — 격자 해상도와 무관하게 물리 제약으로 정의한다.
       # 격자 칸수로 제한하면 해상도에 따라 실질 경사가 달라지는 버그가 생긴다.
       max_climb_angle: 45.0            # degrees

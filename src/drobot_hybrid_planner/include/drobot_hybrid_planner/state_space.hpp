@@ -245,6 +245,16 @@ public:
     /// 비행 한 구간 최대 수평 거리 (m). 0 이하면 제한 없음. SSOT max_flight_distance.
     double max_flight_distance = 0.0;
     double flight_distance_bin = 0.25;   ///< State::fbin 의 구간 폭 (m)
+
+    /// 경로 여유 (2026-10-02). 기본 0 이면 꺼진다 — 벤치마크·테스트는 예전과 같다.
+    ///
+    /// '장애물' 은 이 modal 의 로버가 설 수 없는 칸이다 (지형 > roverHLimit, LETHAL 포함).
+    /// 그래서 밟고넘기에서는 0.7 m 이하 장애물이 장애물이 아니다 — 다가가 올라탄다.
+    /// 우회·하이브리드에서는 상자(fly_over)도 장애물이라 그 옆을 여유 있게 돈다.
+    double min_ground_clearance = 0.0;   ///< m — 장애물까지 이보다 가까우면 주행·착륙 불가
+    double clearance_weight = 0.0;       ///< 장애물 바로 옆(min 거리)에서 1 m 당 더하는 비용
+    double clearance_decay = 2.0;        ///< 1/m — 비용 = weight·exp(-decay·(거리 - min))
+    double clearance_range = 1.0;        ///< m — 이보다 멀면 비용 0
   };
 
   ProblemSpec(
@@ -265,6 +275,25 @@ public:
     unsigned int & ox, unsigned int & oy) const;
   /// 공중에서 이 셀로 내려앉을 수 있는가 — groundOk 에 관측 조건을 더한다
   bool landingOk(unsigned int mx, unsigned int my) const;
+
+  // ---- 경로 여유 (Params 의 min_ground_clearance 이하 주석 참고) ------------
+  /// 지금 지형으로 '가장 가까운 장애물까지 거리' 지도를 다시 만든다.
+  /// 지형이 계속 바뀌므로 계획마다 한 번 부른다 (createPlan). 생성자도 한 번 부른다.
+  void updateClearance();
+  /// 가장 가까운 장애물까지 거리 (m). 꺼져 있거나 계산 범위 밖이면 매우 큰 값.
+  double clearance(unsigned int mx, unsigned int my) const;
+  /// 이 칸을 1 m 지날 때 더해지는 여유 비용 (꺼져 있으면 0).
+  double clearancePenaltyPerMeter(unsigned int mx, unsigned int my) const;
+  /// 월드 좌표 직선 구간의 여유 비용 — 스무딩한 직선에도 격자 경로와 같은 규칙을 쓰려고.
+  double segmentClearancePenalty(double ax, double ay, double bx, double by) const;
+  /// (mx, my) 에서 radius_cells 안에서는 최소 여유 제약을 풀어 준다 (0 이면 해제).
+  /// 로봇이 이미 장애물 옆에 서 있어도 빠져나갈 길을 열어 주기 위함이다.
+  void relaxClearanceAround(unsigned int mx, unsigned int my, unsigned int radius_cells)
+  {
+    relax_mx_ = mx;
+    relax_my_ = my;
+    relax_r_ = radius_cells;
+  }
 
   // ---- modal 별 능력 --------------------------------------------------
   /// 드론으로 전환해 날 수 있는가
@@ -371,6 +400,15 @@ private:
   /// 생성자에서 costmap 을 훑어 비행 고도 후보를 만든다.
   void buildAirLevels();
 
+  /// 여유 지도에서 '장애물' 인 칸 — 이 modal 의 로버가 설 수 없는 지형.
+  bool groundObstacle(unsigned int mx, unsigned int my) const;
+  /// 최소 여유 제약을 만족하는가 (꺼져 있거나 출발점 완화 범위면 true)
+  bool clearanceOk(unsigned int mx, unsigned int my) const;
+  bool clearanceEnabled() const
+  {
+    return params_.min_ground_clearance > 0.0 || params_.clearance_weight > 0.0;
+  }
+
   nav2_costmap_2d::Costmap2D * costmap_;
   std::shared_ptr<TerrainSource> terrain_;
   const EnergyModel * model_;
@@ -383,6 +421,12 @@ private:
 
   /// 비행 고도 후보 (오름차순). 생성자에서 costmap 을 훑어 만든다.
   std::vector<double> air_levels_;
+
+  /// 칸마다 가장 가까운 장애물까지 거리 (m). 비어 있으면 여유 기능이 꺼진 것.
+  std::vector<float> clearance_;
+  unsigned int relax_mx_ = 0;
+  unsigned int relax_my_ = 0;
+  unsigned int relax_r_ = 0;
 };
 
 }  // namespace drobot_hybrid_planner
