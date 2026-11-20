@@ -206,18 +206,24 @@ ros2 run drobot_controller transform_manager
 암 4 개에 `cmd_pos` 를 **동시에** 쏘고 `/joint_states` 로 완료를 기다린다.
 서비스 두 개를 연다: `/transform_to_drone`, `/transform_to_rover`.
 
-### 터미널 3 — 전환점 실행기
+### 터미널 3 — 모드 관리자 (변신 + 비행 구간)
 
 ```bash
 source ~/drobot-research/install/setup.bash
-ros2 run drobot_controller mode_switch_executor
+ros2 run drobot_mode_manager mode_manager --ros-args \
+  --params-file ~/drobot-research/src/drobot_mode_manager/config/mode_switch_params.yaml \
+  -p use_sim_time:=true -p world:=base_map_h0.5_nogap
 ```
 
-**터미널 2 를 먼저 띄울 것.** 서비스가 없으면 경고만 내고 변신하지 않는다.
+**터미널 2 를 먼저 띄울 것.** 변신 서비스가 없으면 경고하고 계속한다
+(`require_transform_success: false`, 시뮬 기본).
 
-`/mode_switch_points` 를 구독해, 로봇이 전환점 반경(기본 0.9 m) 안에 들어오면
-해당 서비스를 부른다. 거리 비교는 TF(`map` → `base_footprint`)로 한다 — 전환점은
-map 프레임이고 `/odom` 은 odom 프레임이라 그대로 비교하면 EKF 보정분만큼 틀린다.
+이륙점(반경 0.35 m)에 닿으면 `/transform_to_drone` → 비행 구간 → `/transform_to_rover`
+순서로 부른다 (2026-11-20 부터). 로그에 `구간 순서: to_drone → fly → to_rover` 가 찍힌다.
+시뮬에서는 암이 목표각에 못 미쳐 두 변신이 매번 timeout 경고를 내지만 구간은 진행된다.
+
+`mode_switch_executor`(drobot_controller) 는 비행 없이 "전환점 → 변신" 배선만 볼 때 쓰는
+시험용이다. **mode_manager 와 같이 띄우지 말 것** — 같은 전환점에서 변신이 두 번 걸린다.
 
 ### 터미널 4 — 목표 전송
 

@@ -180,12 +180,20 @@ float64              distance_remaining
 **호출 순서**
 
 ```
-1. 이륙 지점 도달 판정          mode_switch_executor   (구현됨)
+1. 이륙 지점 도달 판정          mode_manager           (구현됨)
 2. /transform_to_drone          transform_manager      (구현됨, 완료 대기)
-3. ExecuteFlightSegment         << 비행 담당 >>         (비어 있음)
+3. ExecuteFlightSegment         << 비행 담당 >>         (비어 있음 — 지금은 운동학 재생 백엔드)
 4. /transform_to_rover          transform_manager      (구현됨)
 5. Nav2 가 나머지 지상 구간 계속                        (자동)
 ```
+
+**2026-11-20 갱신** — 1~4 를 `mode_manager` 가 순서대로 부른다
+(`drobot_mode_manager/flight_sequence.py`). 처음에는 1·2·4 를 `mode_switch_executor` 가
+따로 했는데, mode_manager 도 같은 전환점을 판정해서 둘이 서로를 모른 채 이륙점 0.9 m
+앞에서 변신, 0.35 m 에서 이륙이 걸렸다 (순서 보장 없음, `documents/REQUIREMENTS_TRACE.md` D-6).
+비행 담당자는 3 번 자리 — `backends.py` 의 백엔드 — 만 바꾸면 된다. 실패 처리도 위 계약 그대로다:
+이륙 전 변신이 실패하면 뜨지 않고(`require_transform_success: true` 일 때), 비행이 실패하면
+로버로 되돌린다. 같은 자리에서 3 번 실패하면 더 시도하지 않는다 (`max_takeoff_attempts`).
 
 **정해두어야 할 것**
 

@@ -17,10 +17,18 @@ PX4 는 아직 없다 — 확인한 사실
     안 한다 전환 판정   switch_tracker.py   (ROS 를 모름)
             비행 타이밍 flight_profile.py   (ROS 도 Gazebo 도 모름)
             이착륙 실행 backends.py         (전송 방식을 주입받음)
+            구간 순서   flight_sequence.py  (변신 → 비행 → 복귀 변신, ROS 를 모름)
+            암 회전     transform_manager   (drobot_controller, 서비스로 부른다)
 
-    넷으로 나눈 이유: 전환이 안 됐을 때 "지점을 잘못 집었나 / 타이밍이
-    틀렸나 / 못 띄웠나 / 전송이 실패했나" 를 갈라내기 위해서다.
-    덤으로 시뮬 없이 맥북에서 앞의 셋이 전부 검증된다.
+    나눈 이유: 전환이 안 됐을 때 "지점을 잘못 집었나 / 타이밍이 틀렸나 /
+    못 띄웠나 / 전송이 실패했나 / 변신이 안 됐나" 를 갈라내기 위해서다.
+    덤으로 시뮬 없이 맥북에서 ROS 를 모르는 넷이 전부 검증된다.
+
+변신 (2026-11-20 부터)
+    이륙 직전에 /transform_to_drone, 착륙 직후에 /transform_to_rover 를 부른다.
+    순서와 실패 처리는 flight_sequence.py 참고. 예전에는 mode_switch_executor 가
+    같은 전환점을 따로 판정해 불렀다 — 두 노드가 서로를 몰라 순서가 보장되지
+    않았다 (documents/REQUIREMENTS_TRACE.md D-6).
 
 자세 전송
     ros_gz_interfaces/srv/SetEntityPose 를 먼저 쓰고, 없으면 gz CLI 로
@@ -46,6 +54,7 @@ from nav2_msgs.msg import SpeedLimit
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
+from std_srvs.srv import Trigger
 
 import tf2_ros
 
@@ -53,6 +62,7 @@ from drobot_msgs.msg import ModeSwitchPlan
 
 from drobot_mode_manager.backends import cli_sender, make_backend
 from drobot_mode_manager.flight_profile import FlightSegment, Pose
+from drobot_mode_manager.flight_sequence import TakeoffAttempts, run_segment
 from drobot_mode_manager.switch_tracker import GROUND, SwitchPoint, SwitchTracker
 
 try:
@@ -80,15 +90,19 @@ LATCHED = QoSProfile(depth=1,
 
 class ModeManager(Node):
     def __init__(self):
-        super().__init__("drobot_mode_manager")
+        # 이름이 config 의 최상위 키와 같아야 --params-file 이 적용된다.
+        # 예전 이름 "drobot_mode_manager" 로는 mode_switch_params.yaml 이 통째로
+        # 무시되고 아래 fallback 기본값만 쓰였다 (2026-11-20 확인 — 기본값이 yaml 과
+        # 같아서 겉으로는 드러나지 않았다).
+        super().__init__("mode_manager")
 
         # 값은 yaml, 코드엔 fallback 기본값만 — 패키지 가이드 06 절.
         # 진실의 출처는 config/mode_switch_params.yaml 이다.
         p = self.declare_parameter
         self.backend = p("backend", "sim").value
-        # 규약(인터페이스 규약 ①)은 base_link 인데 저장소 실물은
-        # base_footprint 다 (ekf.yaml:17). 정렬은 A 트랙 몫이라
-        # 여기서는 파라미터로 받아 맞춰 쓴다.
+        # 저장소 전체가 base_footprint 를 쓴다 (ekf.yaml, slam_params.yaml).
+        # 인터페이스 규약 ① 을 base_footprint 로 개정하기로 했다
+        # (2026-11-20, documents/REQUIREMENTS_TRACE.md D-4).
         self.base_frame = p("base_frame", "base_footprint").value
         self.map_frame = p("map_frame", "map").value
 
@@ -109,6 +123,10 @@ class ModeManager(Node):
         self.warned_batt = False
         self.yaw = 0.0                 # 자세를 쓸 때 방향을 보존하려고 추적
         self.flight_result: bool | None = None   # 백엔드 스레드가 채운다
+        self.flight_rover_ready = True           # 구간이 끝났을 때 로버 형태인가
+        self.flight_up: SwitchPoint | None = None   # 진행 중인 구간의 이륙점
+        # 같은 이륙 자리에서 이만큼 실패하면 거기서는 더 시도하지 않는다 (0 = 제한 없음)
+        self.attempts = TakeoffAttempts(int(p("max_takeoff_attempts", 3).value))
         self.flight_seg: FlightSegment | None = None
 
         # ---- 비행 실행 설정 ----
@@ -132,6 +150,21 @@ class ModeManager(Node):
         self.pause_slam = bool(p("pause_slam_during_flight", True).value)
         self.slam_srv = p("slam_pause_service",
                           "/slam_toolbox/pause_new_measurements").value
+
+        # 변신 — 이륙 직전·착륙 직후 (flight_sequence.py)
+        self.use_transform = bool(p("use_transform", True).value)
+        # False(시뮬): 변신이 실패해도 경고하고 계속한다. 암이 마찰 때문에 목표각에
+        #   늘 못 미쳐 transform_manager 가 매번 timeout 을 돌려주기 때문이다.
+        # True(실물): 실패하면 뜨지 않는다. 착륙 뒤 복귀가 실패하면 지상 속도
+        #   제한을 풀지 않는다 — 드론 형태로 바퀴 주행을 하지 않게.
+        self.require_transform = bool(p("require_transform_success", False).value)
+        self.transform_timeout = float(p("transform_timeout", 15.0).value)
+        to_drone = p("transform_to_drone_service", "/transform_to_drone").value
+        to_rover = p("transform_to_rover_service", "/transform_to_rover").value
+        self.to_drone_cli = self.to_rover_cli = None
+        if self.use_transform:
+            self.to_drone_cli = self.create_client(Trigger, to_drone)
+            self.to_rover_cli = self.create_client(Trigger, to_rover)
 
         self.tf_buf = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buf, self)
@@ -347,6 +380,12 @@ class ModeManager(Node):
                 f"{ev.point.label}점에 닿았는데 상태가 {ev.state_from} 다 — 건너뛴다")
             return
 
+        if ev.point.is_takeoff and not self.attempts.allowed(ev.point.x, ev.point.y):
+            # 이미 포기한 자리다 (실패할 때 한 번 알렸다). update() 가 TAKING_OFF 로
+            # 올린 상태를 되돌리고 조용히 넘어간다 — 안 그러면 20 Hz 로 로그가 쌓인다.
+            self.tracker.state = GROUND
+            return
+
         if ev.blocked is not None:
             # 전환점은 그대로 둔다. 배터리가 회복되거나(충전) 파라미터가
             # 바뀌면 다음 도달에서 다시 판정된다.
@@ -413,6 +452,7 @@ class ModeManager(Node):
             takeoff_time=self.takeoff_time, landing_time=self.landing_time,
             speed=self.flight_speed)
         self.flight_seg = seg
+        self.flight_up = up
         self.flight_result = None
         self._limit_ground_speed(self.flight_speed_pct)
         # 스캔이 점프하기 전에 멈춰야 한다 (위 함수 주석 참고)
@@ -424,12 +464,48 @@ class ModeManager(Node):
         threading.Thread(target=self._run_flight, args=(seg,), daemon=True).start()
 
     def _run_flight(self, seg: FlightSegment):
+        r = run_segment(
+            to_drone=lambda: self._call_transform(self.to_drone_cli, "드론"),
+            fly=lambda: self._fly(seg),
+            to_rover=lambda: self._call_transform(self.to_rover_cli, "로버"),
+            require_transform=self.require_transform)
+        for w in r.warnings:
+            self.get_logger().warn(f"  {w}")
+        if not r.flew:
+            self.get_logger().error("  변신 실패 — 이륙하지 않는다")
+        self.get_logger().info(f"  구간 순서: {' → '.join(r.steps)}")
+        # rover_ready 를 먼저 채운다. 메인 스레드는 flight_result 를 보고 회수한다.
+        self.flight_rover_ready = r.rover_ready
+        self.flight_result = r.ok
+
+    def _fly(self, seg: FlightSegment) -> bool:
         try:
-            ok = self.be.execute(seg, self.get_logger(), time.sleep)
+            return self.be.execute(seg, self.get_logger(), time.sleep)
         except Exception as e:                      # 스레드에서 죽으면 조용히 멈춘다
             self.get_logger().error(f"  비행 중 예외 — {type(e).__name__}: {e}")
-            ok = False
-        self.flight_result = ok
+            return False
+
+    def _call_transform(self, cli, label: str) -> tuple[bool, str]:
+        """변신 서비스를 부르고 끝날 때까지 기다린다 (비행 스레드에서 부른다).
+
+        응답 콜백은 메인 스레드의 rclpy.spin 이 처리하므로 여기서 기다려도
+        노드가 멈추지 않는다.
+        """
+        if cli is None:
+            return True, "변신 꺼짐 (use_transform: false)"
+        if not cli.wait_for_service(timeout_sec=2.0):
+            return False, f"{cli.srv_name} 서비스가 없다 — transform_manager 를 띄웠나"
+        self.get_logger().info(f"  {label} 변신 요청 ({cli.srv_name})")
+        fut = cli.call_async(Trigger.Request())
+        deadline = time.monotonic() + self.transform_timeout
+        while not fut.done():
+            if time.monotonic() > deadline:
+                return False, f"{cli.srv_name} 응답 없음 ({self.transform_timeout:.0f} s)"
+            time.sleep(0.05)
+        res = fut.result()
+        if res is None:
+            return False, f"{cli.srv_name} 호출 실패"
+        return res.success, res.message
 
     def _finish_flight(self):
         """비행 스레드 결과를 메인 스레드에서 회수한다.
@@ -444,14 +520,29 @@ class ModeManager(Node):
 
         # 성공이든 실패든 되돌린다. 안 풀면 로봇이 영영 1% 속도로 기어다니거나
         # SLAM 이 멈춘 채로 남아, 원인을 찾기 어려운 상태가 된다.
-        self._limit_ground_speed(None)
+        # 예외 하나: 변신을 필수로 둔 설정(실물)에서 로버로 못 돌아왔으면 묶어 둔다.
+        #   드론 형태로 바퀴 주행을 하는 것보다 멈춰 있는 편이 낫다.
+        if self.require_transform and not self.flight_rover_ready:
+            self.get_logger().error(
+                "  로버 형태로 돌아오지 못했다 — 지상 속도 제한을 유지한다 (수동 확인 필요)")
+        else:
+            self._limit_ground_speed(None)
         if not ok and self.pause_slam and self.slam_paused:
             self._set_slam_paused(False)
 
         if not ok:
             # 실패를 성공으로 넘기지 않는다. 전환점을 그대로 두면
             # 로봇이 다시 그 자리에 올 때 재시도한다.
-            self.get_logger().error("  비행 실패 — 상태를 GROUND 로 되돌린다")
+            up = self.flight_up
+            n = self.attempts.failed(up.x, up.y) if up is not None else 0
+            lim = self.attempts.limit
+            if lim > 0 and n >= lim:
+                self.get_logger().error(
+                    f"  같은 이륙 자리에서 {n} 번 실패 — 여기서는 더 시도하지 않는다 "
+                    f"(노드를 다시 띄우면 초기화된다)")
+            else:
+                self.get_logger().error(
+                    f"  비행 실패 ({n}/{lim if lim > 0 else '∞'}) — 상태를 GROUND 로 되돌린다")
             self.tracker.state = GROUND
             return
 

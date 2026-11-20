@@ -6,7 +6,15 @@
 # https://opensource.org/licenses/MIT.
 
 """
-경로의 모드 전환점에 도달하면 변신 모션을 실행한다.
+경로의 모드 전환점에 도달하면 변신 모션을 실행한다 — 배선 시험용.
+
+지금은 쓰지 않는다 (2026-11-20)
+    변신은 mode_manager(drobot_mode_manager)가 이륙 직전·착륙 직후에 부른다.
+    두 노드가 같은 전환점을 따로 판정하면 이륙점 0.9 m 앞에서 변신이,
+    0.35 m 에서 이륙이 따로 걸리고 순서가 보장되지 않았다
+    (documents/REQUIREMENTS_TRACE.md D-6). 이 노드는 비행 없이 "전환점 수신 →
+    거리 판정 → 변신 서비스 → 암 회전" 배선만 따로 볼 때 쓴다.
+    **mode_manager 와 같이 띄우지 말 것.** 떠 있으면 시작할 때 경고한다.
 
 무엇을 잇는가
     플래너(HybridAStarPlanner)는 경로와 함께 /mode_switch_points 로
@@ -102,10 +110,19 @@ class ModeSwitchExecutor(Node):
             Trigger, '/transform_to_rover', callback_group=group)
 
         self.create_timer(0.2, self._tick, callback_group=group)
+        # 노드 목록은 discovery 가 끝나야 보이므로 조금 기다렸다가 한 번 본다
+        self._dup_check = self.create_timer(3.0, self._warn_if_mode_manager)
 
         self.get_logger().info(
             f'mode_switch_executor 시작 — 반경 {self._radius:.2f} m, '
             f'로봇 프레임 {self._robot_frame}')
+
+    def _warn_if_mode_manager(self):
+        self._dup_check.cancel()
+        if 'mode_manager' in self.get_node_names():
+            self.get_logger().error(
+                'mode_manager 가 떠 있다 — 변신이 두 번 걸린다. 이 노드는 배선 '
+                '시험용이니 끌 것 (변신은 mode_manager 가 부른다)')
 
     # ------------------------------------------------------------------
     def _on_plan(self, msg: ModeSwitchPlan):

@@ -73,7 +73,7 @@
 | Q-2 | 센서 토픽은 `sensor_data` QoS | 🟡 | ElevationLayer 구독은 `SensorDataQoS` 확인. 나머지 구독자는 미확인 |
 | Q-3 | `/plan` | ✅ | Nav2 |
 | Q-4 | `/mode_switch_points` reliable + transient_local | ✅ | 발행(플래너) transient_local, 구독 2 곳(mode_manager `LATCHED`, executor transient_local) |
-| Q-5 | `/mode_switch_points` 구독자 = mode_manager | 🟡 | **구독자가 둘이다.** 규약에 없는 `mode_switch_executor`(변신)가 추가됐다. 도달 판정 반경도 다르다 (0.35 m vs 0.9 m). 지금은 둘 다 수동 실행이라 같이 뜬 적이 없다. [D-6](#5-결정-필요) |
+| Q-5 | `/mode_switch_points` 구독자 = mode_manager | ✅ | 2026-11-20 부터 변신도 mode_manager 가 부른다 (D-6). 그 전에는 **구독자가 둘이었다.** 규약에 없는 `mode_switch_executor`(변신)가 추가됐다. 도달 판정 반경도 다르다 (0.35 m vs 0.9 m). 지금은 둘 다 수동 실행이라 같이 뜬 적이 없다. [D-6](#5-결정-필요) |
 | Q-6 | `/battery_state` energy_logger → mode_manager | 🟡 | 코드상 배선됨. INA226 이 없어 실제 값은 흐른 적 없음 |
 | Q-7 | `/fmu/*` PX4 | ⬜ | 사용 안 함. px4_msgs 는 체크아웃돼 있으나 빌드 OOM (HANDOFF) |
 
@@ -154,7 +154,7 @@
 | ID | 사양 | 상태 | 비고 |
 |---|---|---|---|
 | P-C1 | 구독 → 정지 확인 → **PX4 이착륙** → SLAM 재개 | 🟡 | PX4 대신 `backend: sim` (Gazebo set_pose 운동학 재생). "비행 시뮬레이션" 이 아니다 (backends.py 경고) |
-| P-C2 | mode_switch_params 값 | ✅ | 사양 6 개 값 일치 |
+| P-C2 | mode_switch_params 값 | 🟡 | 사양 6 개 값 일치. **단 이 파일은 2026-11-20 전까지 적용되지 않았다** — 노드 이름이 `drobot_mode_manager` 라 yaml 최상위 키(`mode_manager`)와 달라 `--params-file` 이 통째로 무시되고 코드 기본값만 쓰였다. 기본값이 yaml 과 같아 드러나지 않았다. 노드 이름을 `mode_manager` 로 고쳤다 |
 | P-C3 | 테스트 | ✅ | pytest 26 개 통과 |
 | P-C4 | 전 사이클 | 🟡 | GROUND→TAKING_OFF→FLYING→LANDING→GROUND, 착륙 오차 17 cm (C 트랙 기록) |
 
@@ -237,7 +237,7 @@
 | D-3 | `NO_INFORMATION` 해석 | 미결 | 권장: 지상 통과는 낙관, 비행 선택("날아 넘을 수 있다") 은 비관. prior map 은 우회일 뿐이다 |
 | D-4 | 프레임 이름 | **결정됨 (2026-11-20)** | **규약을 `base_footprint` 로 개정한다.** 모든 노드가 이미 `base_footprint` 를 쓰고 REP-120 에도 맞다. 할 일: 인터페이스 규약 PDF ①·③ 갱신, 매니페스트 ekf·slam 예시 갱신, `mode_switch_params.yaml` 의 "규약 정렬은 A 트랙 몫" 주석 정리 |
 | D-5 | 파라미터 원천 | **(c) 적용 (2026-11-20)** | 일치 테스트를 넣었다. (a)/(b) 는 MPPI 작업 뒤에 정한다. 아래 설명 |
-| D-6 | 전환점 도달 판정 주체 | 미결 | 아래 설명 |
+| D-6 | 전환점 도달 판정 주체 | **적용 (2026-11-20)** | mode_manager 하나로. 변신 호출을 이륙 직전·착륙 직후로 옮겼다. 아래 설명 |
 | D-7 | 수용 기준의 `__` 값 | 미결 | 팀 |
 | D-8 | SLAM loop closure 끔, 레이저 범위 12 m | 미결 | 사유 확인 |
 | D-9 | EKF 50 Hz (사양 30, 실측 미달) | 미결 | 30 시험. TF 지연이 의심된 적 있으나 원인은 아니었다 (반증된 가설) |
@@ -274,9 +274,18 @@ MPPI 로 바꾸면 컨트롤러 블록이 통째로 바뀌므로 그때 함께 �
 이륙점에서 0.9 m 에 변신이, 0.35 m 에 이륙이 따로 걸린다. 순서도 보장되지 않는다
 (변신이 끝나기 전에 이륙할 수 있다).
 
-권장: 판정은 **mode_manager 하나로** 한다 — 순서·상태·배터리 검사가 이미 있다. executor 의 변신 호출은
-mode_manager 의 이륙 직전·착륙 직후 단계로 옮기고, executor 는 비행이 없는 테스트용으로만 남긴다.
-HANDOFF 의 호출 순서(도달 판정 → `/transform_to_drone` → 비행 → `/transform_to_rover`)와도 맞는다.
+**적용 (2026-11-20)**: 판정은 mode_manager 하나로 한다 — 순서·상태·배터리 검사가 이미 있다.
+변신 호출을 mode_manager 의 이륙 직전·착륙 직후로 옮겼다 (`flight_sequence.py`, 테스트 11 개).
+executor 는 비행 없이 배선만 볼 때 쓰는 시험용으로 남기고, mode_manager 가 떠 있으면 경고한다.
+
+- 실패 처리는 HANDOFF 계약대로: `require_transform_success: true` 면 이륙 전 변신 실패 시 뜨지 않고
+  로버로 되돌린다. 비행이 실패하면 로버로 되돌린다. 시뮬 기본은 `false` — 암이 마찰로 목표각에
+  늘 못 미쳐 transform_manager 가 매번 timeout 을 주기 때문이다 (AC-8).
+- 같은 이륙 자리에서 3 번 실패하면 더 시도하지 않는다 (`max_takeoff_attempts`). 연기 시험에서
+  실패한 뒤 3 s 마다 끝없이 재시도하는 것을 확인하고 넣었다.
+- 연기 시험 (2026-11-20, 로컬, backend null + 가짜 변신 서비스): 정상이면
+  `to_drone → fly → to_rover` 후 FLYING → 착륙점에서 GROUND. 엄격 모드에서 변신 실패면
+  `to_drone → to_rover` 로 3 회 후 중단. 실제 시뮬(Gazebo) 확인은 남았다.
 
 ### 2026-11-20 반영한 것 (결정 불필요 5 건)
 
