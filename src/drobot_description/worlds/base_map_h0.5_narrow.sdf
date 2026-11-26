@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <!-- 틈 0.70 m — 지상 가능하지만 비행이 유리 (base_map_h0.5 파생, 2026-10-05) -->
 <sdf version="1.9">
-  <world name="base_map_h0.5">
+  <world name="base_map_h0.5_narrow">
     <physics name="1ms" type="ignored">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
