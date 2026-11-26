@@ -46,12 +46,14 @@ from pathlib import Path
 import rclpy
 from rclpy.duration import Duration
 from rclpy.node import Node
+from rclpy.parameter_client import AsyncParameterClient
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.time import Time
 
 from geometry_msgs.msg import PoseWithCovarianceStamped
 from nav2_msgs.msg import SpeedLimit
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import ParameterType
 from sensor_msgs.msg import BatteryState
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
@@ -186,10 +188,14 @@ class ModeManager(Node):
             f"도달반경 {t.arrival_radius} m · 정지판정 {t.velocity_threshold} m/s")
         # SLAM 정지 클라이언트
         self.slam_cli = None
+        self.slam_param_cli = None
         self.slam_paused = False
         if self.pause_slam and SlamPause is not None:
             try:
                 self.slam_cli = self.create_client(SlamPause, self.slam_srv)
+                # 서비스를 가진 노드 = 이름에서 마지막 토막을 뗀 것 (/slam_toolbox)
+                slam_node = self.slam_srv.rsplit("/", 1)[0] or "/slam_toolbox"
+                self.slam_param_cli = AsyncParameterClient(self, slam_node)
             except Exception as e:
                 self.get_logger().warn(f"SLAM 서비스 클라이언트 생성 실패 ({e})")
 
@@ -583,8 +589,15 @@ class ModeManager(Node):
             인터페이스 규약 ① 이 map->odom 에 "비행 중 정지, 착륙 후 재보정"
             이라고 적어둔 게 이 상황이다.
 
-        pause_new_measurements 는 토글이라 응답의 status 로 실제 상태를 보고
-        원하는 쪽이 아니면 한 번 더 부른다.
+        pause_new_measurements 는 토글이고, 응답의 status 는 상태가 아니라 늘 true 다
+        (slam_toolbox 소스: resp->status = true). 그래서 status 로 판단하면 안 된다 —
+        2026-11-20 4 회차에서 '재개' 가 status true 를 '아직 정지' 로 읽고 다시 부르기를
+        끝없이 되풀이해 (launch 로그 "Toggled to" 77 만 줄) 첫 착륙 뒤 SLAM 이 반쯤만
+        스캔을 받았고 map->odom 이 1.37 m 틀어졌다.
+
+        대신 slam_toolbox 가 토글할 때마다 적어 두는 파라미터 paused_new_measurements 를
+        먼저 읽고, 원하는 상태와 다를 때만 정확히 한 번 토글한다. 다시 부르는 고리가
+        없으므로 핑퐁이 생길 수 없다. 파라미터를 못 읽으면 여기서 기억한 상태를 믿는다.
         """
         if self.slam_cli is None or not self.slam_cli.service_is_ready():
             if want:
@@ -593,22 +606,38 @@ class ModeManager(Node):
                     "고정돼 Nav2 가 TF 를 못 얻을 수 있다")
             return
 
-        def done(fut, target):
+        def toggled(fut):
             try:
-                st = bool(fut.result().status)
+                fut.result()
             except Exception as e:
                 self.get_logger().warn(f"  SLAM 정지/재개 실패 — {type(e).__name__}: {e}")
                 return
-            self.slam_paused = st
-            if st == target:
-                self.get_logger().info(f"  SLAM {'정지' if st else '재개'}")
-            else:
-                # 토글이라 반대로 뒤집혔다. 한 번 더.
-                f2 = self.slam_cli.call_async(SlamPause.Request())
-                f2.add_done_callback(lambda f: done(f, target))
+            self.slam_paused = want
+            self.get_logger().info(f"  SLAM {'정지' if want else '재개'}")
 
-        fut = self.slam_cli.call_async(SlamPause.Request())
-        fut.add_done_callback(lambda f: done(f, want))
+        def decide(current):
+            if current == want:
+                self.slam_paused = want
+                self.get_logger().info(
+                    f"  SLAM 이미 {'정지' if want else '재개'} 상태 — 토글하지 않는다")
+                return
+            self.slam_cli.call_async(SlamPause.Request()).add_done_callback(toggled)
+
+        def got_param(fut):
+            current = self.slam_paused
+            try:
+                v = fut.result().values[0]
+                if v.type == ParameterType.PARAMETER_BOOL:
+                    current = v.bool_value
+            except Exception:
+                pass   # 못 읽으면 기억한 상태로
+            decide(current)
+
+        pc = self.slam_param_cli
+        if pc is not None and pc.services_are_ready():
+            pc.get_parameters(["paused_new_measurements"]).add_done_callback(got_param)
+        else:
+            decide(self.slam_paused)
 
     def _reset_localization(self, x: float, y: float, yaw: float):
         """비행 뒤 위치추정을 착륙 지점으로 다시 잡는다.
