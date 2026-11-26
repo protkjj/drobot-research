@@ -35,6 +35,7 @@
 #ifndef DROBOT_COSTMAP_2_5D__ELEVATION_LAYER_HPP_
 #define DROBOT_COSTMAP_2_5D__ELEVATION_LAYER_HPP_
 
+#include <atomic>
 #include <cmath>
 #include <memory>
 #include <mutex>
@@ -46,6 +47,7 @@
 #include <nav2_costmap_2d/layered_costmap.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
 #include <sensor_msgs/msg/laser_scan.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
@@ -103,6 +105,15 @@ struct ElevationCell
 };
 
 
+/// 관절들이 기준 자세에서 가장 많이 벗어난 정도 (rad). 하나라도 msg 에 없으면 음수.
+///
+/// ElevationLayer 가 '팔이 로버 자세인가' 를 판단하는 데 쓴다 (rover_pose.* 파라미터).
+/// names/positions 는 sensor_msgs/JointState 그대로, want_* 는 기준 관절과 각도.
+double maxJointDeviation(
+  const std::vector<std::string> & names, const std::vector<double> & positions,
+  const std::vector<std::string> & want_names, const std::vector<double> & want_positions);
+
+
 class ElevationLayer : public nav2_costmap_2d::CostmapLayer
 {
 public:
@@ -147,6 +158,7 @@ private:
   // ---- 콜백 ----------------------------------------------------------
   void pointCloudCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
   void laserScanCallback(sensor_msgs::msg::LaserScan::ConstSharedPtr msg);
+  void jointStateCallback(sensor_msgs::msg::JointState::ConstSharedPtr msg);
 
   /// 센서 프레임의 점을 costmap 전역 프레임으로 옮기는 변환을 얻는다.
   /// Layer 기반 클래스가 tf_ 버퍼를 제공하므로 그걸 쓴다.
@@ -239,6 +251,20 @@ private:
   double max_obstacle_height_ = 3.0;    ///< 이보다 높은 점은 무시 (천장)
   double max_sensor_range_ = 4.0;       ///< D435i depth 유효 범위
 
+  // 로버 자세일 때만 카메라 높이를 넣는다 (rover_pose.*). 2026-11-26
+  //   드론 자세에서는 바퀴가 25 cm 접혀 몸체가 바닥에 내려앉는다 (base_footprint
+  //   −0.105 m). TF 는 몸체가 정상 높이라고 보므로 카메라가 바닥을 +10 cm 로 재고,
+  //   예전에 0 으로 잰 칸과의 경계가 '10 cm 턱' — 가짜 장애물이 된다. 착륙 뒤 로버
+  //   변신이 덜 끝나도 같다. 그래서 팔이 로버 자세(오차 <= tolerance)일 때만 넣는다.
+  //   joints 가 비어 있으면 이 검사를 하지 않는다.
+  std::vector<std::string> rover_joints_;
+  std::vector<double> rover_positions_;
+  double rover_tolerance_ = 0.1;
+  std::string joint_states_topic_ = "/joint_states";
+  /// 아직 JointState 를 못 받았으면 true (검사 대상 관절이 없다고 막지 않는다)
+  std::atomic<bool> rover_pose_ok_{true};
+  bool rover_pose_known_ = false;
+
   /// 정답 높이맵 파일 경로. 비어 있으면 쓰지 않는다 (센서만으로 동작).
   std::string prior_map_;
 
@@ -250,6 +276,7 @@ private:
   // ---- ROS ------------------------------------------------------------
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr elevation_pub_;
 
   std::string global_frame_;

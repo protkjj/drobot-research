@@ -345,6 +345,16 @@ local_costmap:
         # 런치가 use_prior_map:=true 일 때 RewrittenYaml 로 채워 넣으므로
         # 이 키가 없으면 치환이 일어나지 않는다 (RewrittenYaml 은 '있는 키'만 바꾼다).
         prior_map: ""
+        # 팔이 로버 자세일 때만 카메라 높이를 넣는다 (2026-11-26).
+        # 드론 자세면 바퀴가 25 cm 접혀 몸체가 바닥에 내려앉고(−0.105 m), TF 는 그걸 모르므로
+        # 카메라가 바닥을 +10 cm 로 잰다. 예전 0 칸과의 경계가 가짜 턱(전역 200, 지역 254)이
+        # 되어 바퀴로 갈 곳을 날아갔다. 0.1 rad ≈ 몸체 2 cm (단차 한계 0.05 m 의 절반 미만).
+        # 변신 중·비행 중·착륙 뒤 팔이 덜 돌아온 동안에는 기존 높이를 그대로 둔다 (LiDAR 는 계속).
+        rover_pose:
+          joints: ["lf_arm_rev", "lr_arm_rev", "rf_arm_rev", "rr_arm_rev"]
+          positions: [0.0, 0.0, 0.0, 0.0]     # transform_manager 의 로버 목표각
+          tolerance: 0.1
+          topic: "/joint_states"
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 3.0      # 높을수록 lethal 근처만 고비용
@@ -518,6 +528,16 @@ global_costmap:
         # 런치가 use_prior_map:=true 일 때 RewrittenYaml 로 채워 넣으므로
         # 이 키가 없으면 치환이 일어나지 않는다 (RewrittenYaml 은 '있는 키'만 바꾼다).
         prior_map: ""
+        # 팔이 로버 자세일 때만 카메라 높이를 넣는다 (2026-11-26).
+        # 드론 자세면 바퀴가 25 cm 접혀 몸체가 바닥에 내려앉고(−0.105 m), TF 는 그걸 모르므로
+        # 카메라가 바닥을 +10 cm 로 잰다. 예전 0 칸과의 경계가 가짜 턱(전역 200, 지역 254)이
+        # 되어 바퀴로 갈 곳을 날아갔다. 0.1 rad ≈ 몸체 2 cm (단차 한계 0.05 m 의 절반 미만).
+        # 변신 중·비행 중·착륙 뒤 팔이 덜 돌아온 동안에는 기존 높이를 그대로 둔다 (LiDAR 는 계속).
+        rover_pose:
+          joints: ["lf_arm_rev", "lr_arm_rev", "rf_arm_rev", "rr_arm_rev"]
+          positions: [0.0, 0.0, 0.0, 0.0]     # transform_manager 의 로버 목표각
+          tolerance: 0.1
+          topic: "/joint_states"
 
       # 실제 높이 (drobot_costmap_2_5d::ElevationHeightLayer) — 2026-11-20
       # elevation_layer 가 잰 높이를 1 cm 단위로 담는다 (255 = 모름). master 는 건드리지 않는다.

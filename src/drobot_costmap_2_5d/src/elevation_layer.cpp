@@ -44,6 +44,22 @@ T getParam(
 }  // namespace
 
 
+double maxJointDeviation(
+  const std::vector<std::string> & names, const std::vector<double> & positions,
+  const std::vector<std::string> & want_names, const std::vector<double> & want_positions)
+{
+  double worst = 0.0;
+  for (size_t k = 0; k < want_names.size(); ++k) {
+    const auto it = std::find(names.begin(), names.end(), want_names[k]);
+    const auto idx = static_cast<size_t>(it - names.begin());
+    if (it == names.end() || idx >= positions.size()) {return -1.0;}
+    const double want = k < want_positions.size() ? want_positions[k] : 0.0;
+    worst = std::max(worst, std::fabs(positions[idx] - want));
+  }
+  return worst;
+}
+
+
 // ---------------------------------------------------------------------------
 // 초기화
 // ---------------------------------------------------------------------------
@@ -101,6 +117,12 @@ void ElevationLayer::onInitialize()
   clear_on_reset_ = getParam(node, p + "clear_on_reset", clear_on_reset_);
   prior_map_ = getParam(node, p + "prior_map", std::string{});
 
+  rover_joints_ = getParam(node, p + "rover_pose.joints", std::vector<std::string>{});
+  rover_positions_ = getParam(
+    node, p + "rover_pose.positions", std::vector<double>(rover_joints_.size(), 0.0));
+  rover_tolerance_ = getParam(node, p + "rover_pose.tolerance", rover_tolerance_);
+  joint_states_topic_ = getParam(node, p + "rover_pose.topic", joint_states_topic_);
+
   // 자체 격자(costmap_)에서 '아직 못 본 칸'의 값.
   // Costmap2D 기본 생성자는 default_value_ 를 초기화하지 않아서 (nav2 jazzy),
   // 그대로 두면 resizeMap/resetMaps 가 미정의 값으로 격자를 채운다.
@@ -129,6 +151,15 @@ void ElevationLayer::onInitialize()
       scan_topic_, sensor_qos,
       std::bind(&ElevationLayer::laserScanCallback, this, std::placeholders::_1));
     RCLCPP_INFO(logger_, "ElevationLayer: LaserScan 구독 '%s'", scan_topic_.c_str());
+  }
+  if (!rover_joints_.empty()) {
+    joint_sub_ = node->create_subscription<sensor_msgs::msg::JointState>(
+      joint_states_topic_, rclcpp::QoS(10),
+      std::bind(&ElevationLayer::jointStateCallback, this, std::placeholders::_1));
+    RCLCPP_INFO(
+      logger_,
+      "ElevationLayer: 팔이 로버 자세(오차 <= %.2f rad, 관절 %zu 개)일 때만 "
+      "카메라 높이를 넣는다", rover_tolerance_, rover_joints_.size());
   }
   if (publish_elevation_) {
     elevation_pub_ = node->create_publisher<nav_msgs::msg::OccupancyGrid>(
@@ -358,6 +389,8 @@ bool ElevationLayer::lookupToGlobal(
 void ElevationLayer::pointCloudCallback(sensor_msgs::msg::PointCloud2::ConstSharedPtr msg)
 {
   if (!enabled_) {return;}
+  // 변신 중이거나 팔이 덜 돌아왔으면 버린다 (rover_joints_ 주석)
+  if (!rover_pose_ok_.load()) {return;}
 
   // 센서 프레임(예: camera)의 점을 costmap 전역 프레임(map)으로 옮긴다.
   // 이 변환이 없으면 로봇이 움직여도 높이가 항상 같은 자리에 쌓여
@@ -427,6 +460,26 @@ void ElevationLayer::pointCloudCallback(sensor_msgs::msg::PointCloud2::ConstShar
       dirty_max_x_ = std::max(dirty_max_x_, hi_x);
       dirty_min_y_ = std::min(dirty_min_y_, lo_y);
       dirty_max_y_ = std::max(dirty_max_y_, hi_y);
+    }
+  }
+}
+
+
+void ElevationLayer::jointStateCallback(sensor_msgs::msg::JointState::ConstSharedPtr msg)
+{
+  const double dev = maxJointDeviation(msg->name, msg->position, rover_joints_, rover_positions_);
+  if (dev < 0.0) {return;}   // 다른 관절만 담은 메시지
+  const bool ok = dev <= rover_tolerance_;
+  const bool was = rover_pose_ok_.exchange(ok);
+  if (!rover_pose_known_ || ok != was) {
+    rover_pose_known_ = true;
+    if (ok) {
+      RCLCPP_INFO(logger_, "ElevationLayer '%s': 로버 자세 — 카메라 높이 반영 재개", name_.c_str());
+    } else {
+      RCLCPP_INFO(
+        logger_,
+        "ElevationLayer '%s': 팔이 로버 자세가 아니다 (최대 %.2f rad) — "
+        "카메라 높이 반영 멈춤", name_.c_str(), dev);
     }
   }
 }
