@@ -71,6 +71,15 @@ struct Waypoint
 nav_msgs::msg::Path densifyPath(
   const std::vector<Waypoint> & wps, double step, const std_msgs::msg::Header & header);
 
+/// path[i] 와 같은 모드가 끊기지 않고 이어지는 마지막 인덱스.
+///
+/// 스무딩의 shortcut 은 이 범위 안에서만 한다 — 모드 전환점을 건너뛰면 안 된다.
+/// 비행 → 착륙 → (그 자리) 재이륙 → 비행 경로에서 두 공중 점을 직선으로 이으면
+/// 착륙이 사라져 두 비행이 하나로 합쳐지고, 탐색이 지킨 비행 1 구간 한계
+/// (max_flight_segment)를 넘는다. 2026-11-26 시뮬에서 5 m 한계에 7.29 m 비행이 나왔다.
+/// benchmark/planners/smoothing.py 는 처음부터 모드별 구간으로 나눠 스무딩한다.
+size_t sameModeRunEnd(const std::vector<Waypoint> & path, size_t i);
+
 
 class HybridAStarPlanner : public nav2_core::GlobalPlanner
 {

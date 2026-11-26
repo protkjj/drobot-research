@@ -92,6 +92,14 @@ nav2_costmap_2d::Costmap2D * findLayerGrid(
 }  // namespace
 
 
+size_t sameModeRunEnd(const std::vector<Waypoint> & path, size_t i)
+{
+  size_t j = i;
+  while (j + 1 < path.size() && path[j + 1].mode == path[i].mode) {++j;}
+  return j;
+}
+
+
 nav_msgs::msg::Path densifyPath(
   const std::vector<Waypoint> & wps, double step, const std_msgs::msg::Header & header)
 {
@@ -625,7 +633,8 @@ std::vector<Waypoint> HybridAStarPlanner::smooth(const std::vector<Waypoint> & p
 
     size_t i = 0;
     while (i + 1 < n) {
-      const size_t j_max = std::min(n - 1, i + kLookahead);
+      // 모드 전환점은 건너뛰지 않는다 (sameModeRunEnd 주석)
+      const size_t j_max = std::min(sameModeRunEnd(cur, i), i + kLookahead);
       size_t best_j = i + 1;
       // 가장 멀리 있는 j 부터 본다 — 많이 자를수록 이득이 크다
       for (size_t j = j_max; j > i + 1; --j) {

@@ -20,6 +20,7 @@
 using drobot_hybrid_planner::AIR;
 using drobot_hybrid_planner::densifyPath;
 using drobot_hybrid_planner::GROUND;
+using drobot_hybrid_planner::sameModeRunEnd;
 using drobot_hybrid_planner::Waypoint;
 
 namespace
@@ -94,4 +95,29 @@ TEST(PathMsg, SinglePointAndEmpty)
   const auto one = densifyPath({{1, 1, 0, GROUND}}, kStep, std_msgs::msg::Header{});
   ASSERT_EQ(one.poses.size(), 1u);
   EXPECT_DOUBLE_EQ(one.poses[0].pose.orientation.w, 1.0);
+}
+
+
+// 스무딩이 건너뛸 수 있는 범위 — 모드 전환점에서 끊겨야 한다.
+// 2026-11-26: 비행 → 착륙 → 그 자리 재이륙 → 비행 경로를 스무딩이 공중 직선 하나로
+// 이어 착륙을 지웠다. 4.9 m + 2.4 m 두 비행이 7.29 m 비행 하나가 되어 5 m 한계를 넘었다.
+TEST(PathMsg, SmoothingRunStopsAtModeSwitch)
+{
+  const std::vector<Waypoint> wps = {
+    {2.0, 9.7, 0.0, GROUND},
+    {2.0, 9.7, 0.8, AIR},    // 1 이륙
+    {2.5, 4.8, 0.8, AIR},    // 2
+    {2.5, 4.8, 0.0, GROUND},  // 3 착륙
+    {2.5, 4.8, 0.8, AIR},    // 4 재이륙
+    {2.9, 2.4, 0.8, AIR},    // 5
+    {2.9, 2.4, 0.0, GROUND},  // 6 착륙
+    {2.1, 1.1, 0.0, GROUND},  // 7
+  };
+  EXPECT_EQ(sameModeRunEnd(wps, 0), 0u);
+  EXPECT_EQ(sameModeRunEnd(wps, 1), 2u);   // 첫 비행은 3(착륙) 을 넘지 않는다
+  EXPECT_EQ(sameModeRunEnd(wps, 2), 2u);
+  EXPECT_EQ(sameModeRunEnd(wps, 3), 3u);
+  EXPECT_EQ(sameModeRunEnd(wps, 4), 5u);
+  EXPECT_EQ(sameModeRunEnd(wps, 6), 7u);
+  EXPECT_EQ(sameModeRunEnd(wps, 7), 7u);
 }
