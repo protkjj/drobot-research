@@ -310,11 +310,17 @@ class ModeManager(Node):
         self.get_logger().info(
             f"계획 수신 — 전환점 {len(pts)}개 · "
             f"예상 비행 에너지 {msg.total_flight_energy:.2f} Wh")
-        log = {"error": self.get_logger().error,
-               "warn": self.get_logger().warn,
-               "info": self.get_logger().info}
+        # 수준마다 다른 줄에서 찍는다. rclpy 는 같은 줄(호출 위치)에서 수준을 바꿔 찍으면
+        # ValueError('Logger severity cannot be changed between calls.') 를 낸다. 예전에는
+        # 한 줄에서 log[level](...) 로 찍어, info 만 나오던 중 '1회 비행거리 초과' warn 이
+        # 처음 나오는 순간 노드가 죽었다 (2026-11-20 4 회차, 돌아오는 목표에서).
         for level, text in self.tracker.validate():
-            log[level]("  " + text)
+            if level == "error":
+                self.get_logger().error("  " + text)
+            elif level == "warn":
+                self.get_logger().warn("  " + text)
+            else:
+                self.get_logger().info("  " + text)
 
     def _on_battery(self, msg: BatteryState):
         """배터리 상태를 판정기에 넘긴다.
