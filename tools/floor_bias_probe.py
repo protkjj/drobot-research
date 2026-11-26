@@ -136,6 +136,26 @@ def quat_to_mat(q) -> np.ndarray:
                      [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]])
 
 
+def compose(a, b):
+    """a(부모→중간) ∘ b(중간→자식) 을 TransformStamped 하나로."""
+    from geometry_msgs.msg import TransformStamped
+    Ra, Rb = quat_to_mat(a.transform.rotation), quat_to_mat(b.transform.rotation)
+    ta = np.array([a.transform.translation.x, a.transform.translation.y, a.transform.translation.z])
+    tb = np.array([b.transform.translation.x, b.transform.translation.y, b.transform.translation.z])
+    R, t = Ra @ Rb, Ra @ tb + ta
+    out = TransformStamped()
+    out.header = b.header
+    out.transform.translation.x, out.transform.translation.y, out.transform.translation.z = t
+    # 회전행렬 -> 쿼터니언
+    w = math.sqrt(max(0.0, 1 + R[0, 0] + R[1, 1] + R[2, 2])) / 2
+    x = math.copysign(math.sqrt(max(0.0, 1 + R[0, 0] - R[1, 1] - R[2, 2])) / 2, R[2, 1] - R[1, 2])
+    y = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] + R[1, 1] - R[2, 2])) / 2, R[0, 2] - R[2, 0])
+    z = math.copysign(math.sqrt(max(0.0, 1 - R[0, 0] - R[1, 1] + R[2, 2])) / 2, R[1, 0] - R[0, 1])
+    q = out.transform.rotation
+    q.x, q.y, q.z, q.w = x, y, z, w
+    return out
+
+
 def run_ros(args) -> int:
     import rclpy
     from rclpy.duration import Duration
@@ -151,20 +171,38 @@ def run_ros(args) -> int:
     node = Node("floor_bias_probe")
     node.set_parameters([rclpy.parameter.Parameter("use_sim_time", value=True)])
     buf = tf2_ros.Buffer()
-    tf2_ros.TransformListener(buf, node)
+    # TF 를 자기 스레드에서 받는다. 아니면 이 노드가 점군을 처리하는 동안 TF 메시지가
+    # 밀려 버퍼가 늦어지고, 점군 시각의 TF 를 못 찾는다 (처음 판에서 0.6 s 늦게 보였다).
+    tf_listener = tf2_ros.TransformListener(buf, node, spin_thread=True)  # noqa: F841
     got = []
+    lags = []   # 점군 시각 - 그때 있던 가장 최근 odom->base_footprint 시각 (s)
 
     def on_cloud(msg):
         if len(got) >= args.frames:
             return
+        stamp = Time.from_msg(msg.header.stamp)
         try:
-            t = buf.lookup_transform("map", msg.header.frame_id, Time.from_msg(msg.header.stamp),
-                                     timeout=Duration(seconds=0.2))
-            rb = buf.lookup_transform("map", "base_footprint", Time.from_msg(msg.header.stamp),
-                                      timeout=Duration(seconds=0.2))
-        except Exception as e:
-            node.get_logger().warn(f"TF 없음 — {e}")
-            return
+            t = buf.lookup_transform("map", msg.header.frame_id, stamp,
+                                     timeout=Duration(seconds=1.0))
+            rb = buf.lookup_transform("map", "base_footprint", stamp,
+                                      timeout=Duration(seconds=1.0))
+        except Exception:
+            # 점군 시각의 TF 가 아직 없다 (TF 가 카메라보다 늦다). 로봇이 서 있는 동안에는
+            # 가장 최근 TF 를 써도 같은 자리라 결과가 같다. 얼마나 늦은지 기록한다.
+            # ElevationLayer 는 0.1 s 만 기다리고 그 프레임을 버린다 (lookupToGlobal).
+            # 체인 전체의 '가장 최근 공통 시각' 도 없을 수 있다 — slam 의 map->odom 은 스캔마다
+            # 한 번, 미래 시각(+transform_timeout)으로 찍힌다. 링크마다 따로 최근 값을 받아
+            # 이어 붙인다 (로봇이 서 있으니 같은 자세다).
+            try:
+                m2o = buf.lookup_transform("map", "odom", Time())
+                o2c = buf.lookup_transform("odom", msg.header.frame_id, Time())
+                o2b = buf.lookup_transform("odom", "base_footprint", Time())
+            except Exception as e:
+                node.get_logger().warn(f"TF 없음 — {e}")
+                return
+            t, rb = compose(m2o, o2c), compose(m2o, o2b)
+            lag = (stamp - Time.from_msg(o2b.header.stamp)).nanoseconds * 1e-9
+            lags.append(lag)
         p = point_cloud2.read_points_numpy(msg, field_names=("x", "y", "z"), skip_nans=True)
         p = p[np.isfinite(p).all(axis=1)]
         R = quat_to_mat(t.transform.rotation)
@@ -184,6 +222,10 @@ def run_ros(args) -> int:
     if not got:
         print("받은 프레임이 없다")
         return 1
+    if lags:
+        print(f"\nTF 지연: {len(lags)}/{len(got)} 프레임에서 점군 시각의 TF 가 1 s 안에 오지 않아 "
+              f"가장 최근 TF 로 대신했다 — TF 가 평균 {np.mean(lags):.2f} s, 최대 {np.max(lags):.2f} s 늦었다.")
+        print("  ElevationLayer 는 0.1 s 만 기다리고 그 프레임을 버린다 — 카메라 높이가 지도에 안 들어간다.")
     report(np.vstack(got))
     return 0
 

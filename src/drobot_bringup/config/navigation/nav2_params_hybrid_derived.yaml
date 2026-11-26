@@ -572,6 +572,11 @@ planner_server:
       height_unit: 0.01
       # 높이가 1 cm 단위로 많아 비행 고도 후보를 이 간격으로 올림해 묶는다 (상태공간 크기).
       air_level_step: 0.10
+      # 더 낮은 후보로 이미 넘을 수 있는 높이에는 후보를 만들지 않는다 (2026-11-20).
+      # 시뮬에서 출발점→목표 계획이 6 s 안에 안 끝났다 — 바닥 오차로 생긴 0.9 m 후보 등이
+      # 비행 상태를 늘렸고, 고른 고도는 늘 0.8 m 였다. 장애물 위 ground effect 비용 때문에
+      # 더 높이 나는 편이 싼 드문 경우는 놓친다.
+      prune_air_levels: true
       land_only_on_observed: true      # 착륙은 카메라가 본 칸에만 (못 본 장애물 윗면 착륙 방지)
       fly_only_over_observed: true     # 비행도 본 칸 위로만. 못 본 곳은 지상으로 가서 센서로 본다 (2026-11-20)
       # 경로 여유 — 이 modal 의 로버가 설 수 없는 칸까지의 거리로 판정한다 (state_space.hpp).

@@ -786,7 +786,7 @@ protected:
     }
   }
 
-  ProblemSpec makeHeightSpec(double air_level_step = 0.10)
+  ProblemSpec makeHeightSpec(double air_level_step = 0.10, bool prune = false)
   {
     std::static_pointer_cast<LayerTerrainSource>(layer_terrain_)->setHeightGrid(
       height_.get(), 0.01);
@@ -795,6 +795,7 @@ protected:
     p.ceiling_height = 2.5;
     p.modal = Modal::Hybrid;
     p.air_level_step = air_level_step;
+    p.prune_air_levels = prune;
     return ProblemSpec(master_.get(), layer_terrain_, &model_, p);
   }
 
@@ -882,6 +883,43 @@ TEST_F(LayerHeightTest, LevelsFollowTheMapAfterUpdate)
   EXPECT_EQ(lowestUsableLevel(spec, kWallX, kMidY), -1) << "갱신 전에는 맞는 고도가 없다";
   spec.updateAirLevels();
   EXPECT_GE(lowestUsableLevel(spec, kWallX, kMidY), 0);
+}
+
+TEST_F(LayerHeightTest, PruneDropsLevelsTheLowestAlreadyCovers)
+{
+  // 2026-11-20 시뮬 상황: 바닥이 기울기로 몇 cm 떠 보여(0.1 로 묶임) 0.9 m 후보가 생겼고,
+  // 0.5 m 상자의 1.3 m 후보도 있었다. 실제로 고르는 고도는 늘 0.8 m 다.
+  for (unsigned int my = 0; my < kNy; ++my) {
+    for (unsigned int mx = 0; mx < kWallX; mx += 2) {
+      height_->setCost(mx, my, 3);       // 0.03 m (바닥 오차)
+    }
+  }
+  setWallHeight(0.50);
+  const ProblemSpec full = makeHeightSpec(0.10, false);
+  const ProblemSpec pruned = makeHeightSpec(0.10, true);
+  ASSERT_EQ(full.airLevels().size(), 3u) << "0.80 0.90 1.30";
+  ASSERT_EQ(pruned.airLevels().size(), 1u) << "0.80 하나면 바닥과 0.5 m 상자를 다 넘는다";
+  EXPECT_NEAR(pruned.levelZ(0), 0.80, 1e-9);
+
+  // 고르는 고도는 같다 — 0.5 m 상자 위 가장 낮은 고도는 둘 다 0.8 m
+  const int lf = lowestUsableLevel(full, kWallX, kMidY);
+  const int lp = lowestUsableLevel(pruned, kWallX, kMidY);
+  ASSERT_GE(lf, 0);
+  ASSERT_GE(lp, 0);
+  EXPECT_NEAR(full.levelZ(static_cast<uint8_t>(lf)), pruned.levelZ(static_cast<uint8_t>(lp)), 1e-9);
+  EXPECT_LT(pruned.numStates(), full.numStates()) << "상태공간이 줄어야 한다";
+}
+
+TEST_F(LayerHeightTest, PruneKeepsLevelsTallObstaclesNeed)
+{
+  // 0.8 m 로 못 넘는 장애물(1.0 m)에는 후보가 따로 있어야 한다
+  setWallHeight(1.00);
+  const ProblemSpec pruned = makeHeightSpec(0.10, true);
+  ASSERT_EQ(pruned.airLevels().size(), 2u);
+  const int lv = lowestUsableLevel(pruned, kWallX, kMidY);
+  ASSERT_GE(lv, 0);
+  EXPECT_GE(pruned.levelZ(static_cast<uint8_t>(lv)), 1.00 + model_.minFlightClearance() - 1e-9);
+  EXPECT_NEAR(pruned.levelZ(0), 0.80, 1e-9) << "바닥 위 기본 고도는 남는다";
 }
 
 int main(int argc, char ** argv)

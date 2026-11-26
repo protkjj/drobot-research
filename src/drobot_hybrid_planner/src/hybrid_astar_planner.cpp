@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <queue>
 #include <string>
@@ -65,6 +66,18 @@ std::string getS(
 /// 같은 프로세스에서 바로 꺼낼 수 있다 (Nav2 InflationLayer::getInflationLayer 와
 /// 같은 방식). 토픽이 아니므로 지연·동기화 문제가 없고, createPlan 이 잡는
 /// master 잠금이 레이어 갱신(updateMap)도 막는다.
+/// 비행 고도 후보를 로그용 문자열로: "3개 (0.80 0.90 1.30 m)"
+std::string levelsText(const std::vector<double> & levels)
+{
+  std::string out = std::to_string(levels.size()) + "개 (";
+  char buf[16];
+  for (size_t i = 0; i < levels.size(); ++i) {
+    std::snprintf(buf, sizeof(buf), "%s%.2f", i ? " " : "", levels[i]);
+    out += buf;
+  }
+  return out + " m)";
+}
+
 nav2_costmap_2d::Costmap2D * findLayerGrid(
   nav2_costmap_2d::Costmap2DROS & costmap_ros, const std::string & name)
 {
@@ -209,6 +222,7 @@ void HybridAStarPlanner::configure(
   terrain_layer_ = getS(node, p + "terrain_layer", terrain_layer_);
   spec_params_.land_only_on_observed = getB(node, p + "land_only_on_observed", true);
   spec_params_.fly_only_over_observed = getB(node, p + "fly_only_over_observed", true);
+  spec_params_.prune_air_levels = getB(node, p + "prune_air_levels", false);
 
   nav2_costmap_2d::Costmap2D * grade = findLayerGrid(*costmap_ros, terrain_layer_);
   const bool same_size = grade != nullptr &&
@@ -805,8 +819,9 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
 
   if (!r.found) {
     RCLCPP_WARN(
-      logger_, "경로를 찾지 못했다 (%s, %zu 노드 확장)",
-      r.timed_out ? "타임아웃" : "해 없음", r.n_expanded);
+      logger_, "경로를 찾지 못했다 (%s, %zu 노드 확장, 고도 후보 %s)",
+      r.timed_out ? "타임아웃" : "해 없음", r.n_expanded,
+      levelsText(spec_->airLevels()).c_str());
     return empty;
   }
 
@@ -839,10 +854,11 @@ nav_msgs::msg::Path HybridAStarPlanner::createPlan(
 
   RCLCPP_INFO(
     logger_,
-    "경로 생성: C=%.4f (E=%.3fWh T=%.1fs 전환=%d 여유비용=%.3f) | %zu 노드 확장, %zu 점, %.3fs",
+    "경로 생성: C=%.4f (E=%.3fWh T=%.1fs 전환=%d 여유비용=%.3f) | %zu 노드 확장, %zu 점, %.3fs | "
+    "고도 후보 %s",
     final_cost, final_acc.eTotal(), final_acc.time_s, final_acc.nSwitches(),
     final_acc.clearance_penalty,
-    r.n_expanded, wps.size(), elapsed);
+    r.n_expanded, wps.size(), elapsed, levelsText(spec_->airLevels()).c_str());
 
   // 탐색은 timeout 안에 끝나도 후처리가 늦으면 전체가 제약을 넘는다.
   // 조용히 넘어가면 실시간성 위반을 놓치므로 경고를 남긴다.

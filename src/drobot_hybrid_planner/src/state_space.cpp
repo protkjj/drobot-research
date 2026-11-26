@@ -392,8 +392,16 @@ void ProblemSpec::buildAirLevels()
   }
 
   std::set<double> levels;
-  for (const double h : heights) {
-    levels.insert(std::min(h + params_.flight_clearance, z_max_));
+  for (const double h : heights) {           // std::set 이라 낮은 높이부터
+    const double z = std::min(h + params_.flight_clearance, z_max_);
+    // prune: 이미 있는 가장 높은 후보가 이 높이 + 최소 여유를 넘으면 그 후보로 넘는다.
+    // 높이를 올림차순으로 보므로 가장 높은 후보 하나만 보면 된다.
+    if (params_.prune_air_levels && !levels.empty() &&
+      *levels.rbegin() >= h + min_clr - 1e-9)
+    {
+      continue;
+    }
+    levels.insert(z);
   }
   // 최소 하나는 있어야 이륙이 가능하다 (평지 위 비행)
   if (levels.empty()) {
